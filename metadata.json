@@ -1,0 +1,6 @@
+{
+  "name": "教学跟踪妮士",
+  "description": "教学跟踪妮士 - 专为教师设计的高效教学跟踪管理平台：支持多班级考勤点名、作业收缴、平时成绩评定与全周期台账导出。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
