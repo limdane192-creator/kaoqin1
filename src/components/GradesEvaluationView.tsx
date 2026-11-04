@@ -17,7 +17,9 @@ import {
   Save,
   UserPlus,
   ArrowRightLeft,
-  Edit3
+  Edit3,
+  Award,
+  BarChart2
 } from 'lucide-react';
 import { ClassRoom, Student, Assignment, StudentScores, StudentEvaluation, BehaviorNote } from '../types';
 import {
@@ -27,6 +29,7 @@ import {
   computeStudentScores
 } from '../utils/calculations';
 import { requestAIEvaluation } from '../utils/aiEvaluation';
+import { StudentAvatarBadge } from '../utils/avatarHelper';
 
 interface GradesEvaluationViewProps {
   currentClass: ClassRoom;
@@ -42,6 +45,8 @@ interface GradesEvaluationViewProps {
   onOpenTransferStudent?: (student: Student) => void;
   onSaveData?: () => void;
   isJustSaved?: boolean;
+  onOpenAvatarPicker?: (student: Student) => void;
+  onOpenCertificate?: (student: Student) => void;
 }
 
 export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
@@ -57,7 +62,9 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
   onOpenEditStudent,
   onOpenTransferStudent,
   onSaveData,
-  isJustSaved
+  isJustSaved,
+  onOpenAvatarPicker,
+  onOpenCertificate
 }) => {
   const classAssignments = assignments.filter(a => a.classId === currentClass.id);
   const [activeStudentForBehavior, setActiveStudentForBehavior] = useState<Student | null>(null);
@@ -81,7 +88,11 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
       : 30;
 
   const [classAttTarget, setClassAttTarget] = useState<number>(defaultAttTarget);
-  const [classHwTarget, setClassHwTarget] = useState<number>(currentClass.totalHwTarget || 20);
+  // 作业基准：默认动态自适应实际布置的作业总数 (学期可多可少，不再硬性限制20次)
+  const [selectedHwTarget, setSelectedHwTarget] = useState<number | 'auto'>('auto');
+  const classHwTarget = selectedHwTarget === 'auto'
+    ? (classAssignments.length > 0 ? classAssignments.length : 10)
+    : selectedHwTarget;
 
   // 常用标签预设
   const commonTags = [
@@ -236,6 +247,10 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
                 <Info className="w-3 h-3" />
                 考勤自动算分：只扣请假(-0.25)、旷课(-0.5)、迟到(每3次-0.5)，空和换班生(-)均不扣分
               </span>
+              <span className="text-teal-700 bg-teal-50 px-2 py-0.5 rounded font-medium border border-teal-100 flex items-center gap-1">
+                <Info className="w-3 h-3" />
+                作业自适应得分：满分10分，按实交/缺交及打分加权自动折算 (缺交按比例扣分，全交满分)
+              </span>
             </div>
           </div>
 
@@ -255,18 +270,26 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
               </select>
             </div>
 
-            {/* HW Target (15-20 times flexible) */}
+            {/* HW Target (Dynamic auto or flexible custom target) */}
             <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-md px-2 py-1 text-xs text-slate-600">
-              <span className="text-slate-400">作业目标:</span>
+              <span className="text-slate-400">作业基准:</span>
               <select
-                value={classHwTarget}
-                onChange={e => setClassHwTarget(Number(e.target.value))}
+                value={selectedHwTarget}
+                onChange={e => {
+                  const val = e.target.value;
+                  setSelectedHwTarget(val === 'auto' ? 'auto' : Number(val));
+                }}
                 className="bg-transparent font-medium text-slate-800 focus:outline-none cursor-pointer"
+                title="选择作业考核基准：默认根据实际布置的作业总数自适应"
               >
-                <option value={20}>20次</option>
-                <option value={18}>18次</option>
-                <option value={16}>16次</option>
-                <option value={15}>15次</option>
+                <option value="auto">
+                  实际布置 ({classAssignments.length}次 · 自动自适应)
+                </option>
+                <option value={10}>固定 10 次</option>
+                <option value={12}>固定 12 次</option>
+                <option value={15}>固定 15 次</option>
+                <option value={18}>固定 18 次</option>
+                <option value={20}>固定 20 次</option>
               </select>
             </div>
 
@@ -361,7 +384,7 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
                 {/* 2. 作业 10% */}
                 <th colSpan={2} className="py-1.5 px-2 border-r border-slate-200 bg-slate-50 text-slate-800">
                   <div>作业 (10%)</div>
-                  <div className="text-[10px] text-teal-700 font-normal">自动填充完成度</div>
+                  <div className="text-[10px] text-teal-700 font-normal">得分与缺交加权折算</div>
                 </th>
 
                 {/* 3. Quiz 1 & Quiz 2 */}
@@ -404,8 +427,11 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
                 <th rowSpan={2} className="py-2 px-4 border-r border-slate-200 text-left min-w-[320px]">
                   期末综合评定评语与标签 (支持AI一键生成)
                 </th>
-                <th rowSpan={2} className="py-2 px-3 text-center min-w-[70px]">
+                <th rowSpan={2} className="py-2 px-3 border-r border-slate-200 text-center min-w-[70px]">
                   课堂记录
+                </th>
+                <th rowSpan={2} className="py-2 px-3 text-center min-w-[130px] bg-amber-50/50 text-amber-900 font-bold">
+                  结业证书与诊断
                 </th>
               </tr>
 
@@ -420,10 +446,10 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
                 </th>
 
                 {/* 作业 */}
-                <th className="py-1.5 px-2 border-r border-slate-100">
-                  已交/目标
+                <th className="py-1.5 px-2 border-r border-slate-100" title="已交次数 / 考核基准布置数">
+                  已交/布置
                 </th>
-                <th className="py-1.5 px-2 border-r border-slate-200 text-slate-700 font-medium">
+                <th className="py-1.5 px-2 border-r border-slate-200 text-slate-700 font-medium" title="按实际布置总次数与得分加权折算 (满分10分，缺交按比例扣分，得分低扣分)">
                   作业(10%)
                 </th>
 
@@ -516,15 +542,24 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
                     </td>
 
                     {/* 姓名 */}
-                    <td className="py-2 px-3 sticky left-12 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-100 min-w-[130px]">
-                      <div className="flex items-center justify-between gap-1 group/stu">
-                        <button
-                          onClick={() => onSelectStudentModal(stu)}
-                          className="font-medium text-slate-800 hover:text-blue-600 transition-colors cursor-pointer text-left truncate"
-                          title="点击查看该学生档案"
-                        >
-                          <span className="truncate">{stu.name}</span>
-                        </button>
+                    <td className="py-2 px-3 sticky left-12 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-100 min-w-[150px]">
+                      <div className="flex items-center justify-between gap-1.5 group/stu">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <StudentAvatarBadge
+                            student={stu}
+                            size="xs"
+                            onClick={() => onOpenAvatarPicker?.(stu)}
+                            className="cursor-pointer shrink-0"
+                            title="点击挑选卡通头像或上传照片"
+                          />
+                          <button
+                            onClick={() => onSelectStudentModal(stu)}
+                            className="font-medium text-slate-800 hover:text-blue-600 transition-colors cursor-pointer text-left truncate"
+                            title="点击查看该学生详细档案与学情诊断"
+                          >
+                            <span className="truncate">{stu.name}</span>
+                          </button>
+                        </div>
                         <div className="opacity-0 group-hover/stu:opacity-100 flex items-center gap-0.5 transition-opacity shrink-0">
                           {onOpenEditStudent && (
                             <button
@@ -583,16 +618,16 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
                       />
                     </td>
 
-                    {/* 2. 作业完成次数与目标 */}
+                    {/* 2. 作业完成次数与基准 */}
                     <td className="py-1.5 px-1.5 text-center border-r border-slate-100">
                       <div className="font-mono tabular-nums text-xs font-semibold text-slate-700">
                         {hwStats.submittedCount + hwStats.lateCount}/{classHwTarget}
                       </div>
                       <div className="text-[10px] text-slate-400">
                         {hwStats.missingCount > 0 ? (
-                          <span className="text-amber-600">缺{hwStats.missingCount}次</span>
+                          <span className="text-amber-600 font-medium">缺{hwStats.missingCount}次</span>
                         ) : (
-                          <span className="text-emerald-600">齐</span>
+                          <span className="text-emerald-600 font-medium">全交齐</span>
                         )}
                       </div>
                     </td>
@@ -603,12 +638,12 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
                         type="number"
                         min={0}
                         max={10}
-                        step="0.1"
+                        step="0.05"
                         value={sc.hwWeighted ?? ''}
                         placeholder={String(autoHwScore)}
                         onChange={e => handleFieldChange('hwWeighted', e.target.value)}
                         className="w-13 text-center text-xs font-mono font-bold tabular-nums bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded px-1 py-1 transition-all"
-                        title={`自动作业分: ${autoHwScore}分 (完成率 ${hwStats.completionRate}%)`}
+                        title={`作业考核分: ${autoHwScore}分 (应得满分: ${hwStats.totalPossibleScore}, 实得总分: ${hwStats.totalEarnedScore}, 缺交: ${hwStats.missingCount}次, 完成率: ${hwStats.completionRate}%)`}
                       />
                     </td>
 
@@ -815,7 +850,7 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
                     </td>
 
                     {/* 具体课堂表现成长记录 */}
-                    <td className="py-1.5 px-3 text-center">
+                    <td className="py-1.5 px-3 text-center border-r border-slate-200">
                       <button
                         onClick={() => setActiveStudentForBehavior(stu)}
                         className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded transition-colors cursor-pointer"
@@ -823,6 +858,30 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
                         <MessageSquare className="w-3 h-3 text-slate-400" />
                         <span>{stu.evaluation.behaviorNotes?.length || 0}条</span>
                       </button>
+                    </td>
+
+                    {/* 结业证书与学情诊断 */}
+                    <td className="py-1.5 px-2 text-center whitespace-nowrap bg-amber-50/20">
+                      <div className="flex items-center justify-center gap-1.5">
+                        {onOpenCertificate && (
+                          <button
+                            onClick={() => onOpenCertificate(stu)}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-amber-900 bg-amber-100/90 hover:bg-amber-200 border border-amber-300 rounded transition-colors cursor-pointer shadow-2xs"
+                            title="生成并下载该学生的结业证书 (HTML网页格式 / 自带打印与WPS排版)"
+                          >
+                            <Award className="w-3 h-3 text-amber-700" />
+                            <span>结业证</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => onSelectStudentModal(stu)}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded transition-colors cursor-pointer shadow-2xs"
+                          title="查看该学生优缺点学情诊断分析图表"
+                        >
+                          <BarChart2 className="w-3 h-3 text-blue-600" />
+                          <span>诊断</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

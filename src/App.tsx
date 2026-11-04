@@ -32,7 +32,8 @@ import {
   saveSelectedClassId,
   loadJournalEntries,
   saveJournalEntries,
-  resetToSampleData
+  resetToSampleData,
+  sortSemestersNewestFirst
 } from './utils/storage';
 import {
   Semester,
@@ -47,6 +48,7 @@ import {
   BehaviorNote,
   TeacherJournalEntry
 } from './types';
+import { parseWeekdaysFromSchedule, calculateNextSessionDate } from './utils/scheduleHelper';
 import { Header } from './components/Header';
 import { ClassSelector } from './components/ClassSelector';
 import { DailyRollCallView } from './components/DailyRollCallView';
@@ -64,6 +66,8 @@ import { AddStudentModal } from './components/AddStudentModal';
 import { EditStudentModal } from './components/EditStudentModal';
 import { TransferStudentModal } from './components/TransferStudentModal';
 import { BackupModal } from './components/BackupModal';
+import { AvatarPickerModal } from './components/AvatarPickerModal';
+import { GraduationCertificateModal } from './components/GraduationCertificateModal';
 
 export default function App() {
   const [semesters, setSemesters] = useState<Semester[]>(loadSemesters);
@@ -119,6 +123,8 @@ export default function App() {
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
   const [selectedStudentForEdit, setSelectedStudentForEdit] = useState<Student | null>(null);
   const [selectedStudentForTransfer, setSelectedStudentForTransfer] = useState<Student | null>(null);
+  const [selectedStudentForAvatarPicker, setSelectedStudentForAvatarPicker] = useState<Student | null>(null);
+  const [selectedStudentForCertificate, setSelectedStudentForCertificate] = useState<Student | null>(null);
   const [isNewAssignmentModalOpen, setIsNewAssignmentModalOpen] = useState(false);
   const [isBatchImportModalOpen, setIsBatchImportModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
@@ -202,8 +208,11 @@ export default function App() {
       name,
       createdAt: Date.now()
     };
-    setSemesters(prev => [...prev, newSem]);
+    const updated = sortSemestersNewestFirst([newSem, ...semesters]);
+    setSemesters(updated);
+    saveSemesters(updated);
     setSelectedSemesterId(newId);
+    saveSelectedSemesterId(newId);
   };
 
   const handleDeleteSemester = (semId: string) => {
@@ -595,6 +604,25 @@ export default function App() {
     setTimeout(() => setSaveToast(null), 3000);
   };
 
+  // 9.4.1 更新学生头像 (支持可爱卡通头像挑选或真实照片上传)
+  const handleUpdateStudentAvatar = (studentId: string, avatar: string) => {
+    setStudents(prev =>
+      prev.map(s => (s.id === studentId ? { ...s, avatar } : s))
+    );
+    if (selectedStudentForModal?.id === studentId) {
+      setSelectedStudentForModal(prev => (prev ? { ...prev, avatar } : null));
+    }
+    if (selectedStudentForCertificate?.id === studentId) {
+      setSelectedStudentForCertificate(prev => (prev ? { ...prev, avatar } : null));
+    }
+    setSaveToast({
+      show: true,
+      title: '头像已成功更换！',
+      desc: '学生个性化卡通/照片头像已实时更新并安全保存。'
+    });
+    setTimeout(() => setSaveToast(null), 3000);
+  };
+
   // 9.5 移除学生档案
   const handleDeleteStudent = (studentId: string) => {
     const deleting = students.find(s => s.id === studentId);
@@ -681,6 +709,96 @@ export default function App() {
         };
       })
     );
+  };
+
+  // 11.5 手动添加或删除课时 (支持多上了添加课时、少上了删除课时，考勤扣分规则完全不变)
+  const handleAddSession = (classId?: string) => {
+    const targetClassId = classId || currentClass.id;
+    const targetClass = classes.find(c => c.id === targetClassId);
+    if (!targetClass) return;
+
+    const currentTotal = targetClass.totalSessions || 30;
+    const newTotal = currentTotal + 1;
+    const weekdays = parseWeekdaysFromSchedule(targetClass.schedule);
+    const lastDate = targetClass.sessionDates?.[currentTotal] || '';
+    const nextDate = calculateNextSessionDate(lastDate, weekdays);
+
+    setClasses(prev =>
+      prev.map(c => {
+        if (c.id !== targetClassId) return c;
+        return {
+          ...c,
+          totalSessions: newTotal,
+          sessionDates: { ...(c.sessionDates || {}), [newTotal]: nextDate },
+          sessionModes: { ...(c.sessionModes || {}), [newTotal]: 'offline' }
+        };
+      })
+    );
+
+    setSaveToast({
+      show: true,
+      title: '已添加新课时',
+      desc: `已为班级【${targetClass.name}】增加第 ${newTotal} 课时（推算日期：${nextDate}），原有考勤成绩规则保持不变。`
+    });
+    setTimeout(() => setSaveToast(null), 3500);
+  };
+
+  const handleDeleteSession = (classId?: string) => {
+    const targetClassId = classId || currentClass.id;
+    const targetClass = classes.find(c => c.id === targetClassId);
+    if (!targetClass) return;
+
+    const currentTotal = targetClass.totalSessions || 30;
+    if (currentTotal <= 1) {
+      setSaveToast({
+        show: true,
+        title: '无法继续减少课时',
+        desc: '班级至少保留 1 节课时。'
+      });
+      setTimeout(() => setSaveToast(null), 3000);
+      return;
+    }
+
+    const newTotal = currentTotal - 1;
+
+    setClasses(prev =>
+      prev.map(c => {
+        if (c.id !== targetClassId) return c;
+        const nextDates = { ...(c.sessionDates || {}) };
+        delete nextDates[currentTotal];
+        const nextModes = { ...(c.sessionModes || {}) };
+        delete nextModes[currentTotal];
+        return {
+          ...c,
+          totalSessions: newTotal,
+          sessionDates: nextDates,
+          sessionModes: nextModes
+        };
+      })
+    );
+
+    // 清理该班级学生对应被删除课时的考勤记录
+    setStudents(prev =>
+      prev.map(s => {
+        if (s.classId !== targetClassId) return s;
+        const nextAtt = { ...s.attendance };
+        delete nextAtt[currentTotal];
+        const nextNotes = { ...s.attendanceNotes };
+        delete nextNotes[currentTotal];
+        return {
+          ...s,
+          attendance: nextAtt,
+          attendanceNotes: nextNotes
+        };
+      })
+    );
+
+    setSaveToast({
+      show: true,
+      title: '已删除课时',
+      desc: `已删除班级【${targetClass.name}】末尾的第 ${currentTotal} 课时，当前总课时调整为 ${newTotal} 课。`
+    });
+    setTimeout(() => setSaveToast(null), 3500);
   };
 
   // 12. 布置新作业
@@ -950,7 +1068,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#FAF7F2] flex flex-col font-sans text-slate-800">
       {/* Top Header */}
       <Header
         currentTab={currentTab}
@@ -1003,9 +1121,11 @@ export default function App() {
             onBatchSetAttendance={handleBatchSetAttendance}
             onSelectStudentModal={stu => setSelectedStudentForModal(stu)}
             onSwitchToBrowse={() => setCurrentTab('attendance')}
+            onUpdateSessionConfig={handleUpdateSessionConfig}
             onSaveData={handleManualSave}
             isJustSaved={isJustSaved}
             onSortClassStudentsAZ={() => handleSortClassStudentsAZ(currentClass.id)}
+            onOpenAvatarPicker={stu => setSelectedStudentForAvatarPicker(stu)}
           />
         )}
 
@@ -1024,6 +1144,8 @@ export default function App() {
             onSwitchToRollCall={() => setCurrentTab('rollcall')}
             onUpdateSessionConfig={handleUpdateSessionConfig}
             onBatchUpdateSessions={handleBatchUpdateSessions}
+            onAddSession={() => handleAddSession(currentClass.id)}
+            onDeleteSession={() => handleDeleteSession(currentClass.id)}
             onSaveData={handleManualSave}
             isJustSaved={isJustSaved}
             onSortClassStudentsAZ={() => handleSortClassStudentsAZ(currentClass.id)}
@@ -1058,6 +1180,8 @@ export default function App() {
             onOpenEditStudent={stu => setSelectedStudentForEdit(stu)}
             onSaveData={handleManualSave}
             isJustSaved={isJustSaved}
+            onOpenAvatarPicker={stu => setSelectedStudentForAvatarPicker(stu)}
+            onOpenCertificate={stu => setSelectedStudentForCertificate(stu)}
           />
         )}
 
@@ -1093,12 +1217,18 @@ export default function App() {
 
       {/* Student Detail Modal */}
       <StudentDetailModal
-        student={selectedStudentForModal}
+        student={
+          selectedStudentForModal
+            ? students.find(s => s.id === selectedStudentForModal.id) || selectedStudentForModal
+            : null
+        }
         onClose={() => setSelectedStudentForModal(null)}
         classes={classes}
         assignments={assignments}
         onOpenTransfer={stu => setSelectedStudentForTransfer(stu)}
         onOpenEdit={stu => setSelectedStudentForEdit(stu)}
+        onOpenAvatarPicker={stu => setSelectedStudentForAvatarPicker(stu)}
+        onOpenCertificate={stu => setSelectedStudentForCertificate(stu)}
       />
 
       {/* New Class Modal */}
@@ -1179,6 +1309,42 @@ export default function App() {
         semesters={semesters}
         onRestore={handleRestore}
         onReset={handleResetData}
+      />
+
+      {/* Avatar Picker Modal (卡通预设或自定义真实照片上传) */}
+      <AvatarPickerModal
+        isOpen={!!selectedStudentForAvatarPicker}
+        onClose={() => setSelectedStudentForAvatarPicker(null)}
+        student={selectedStudentForAvatarPicker}
+        onSaveAvatar={handleUpdateStudentAvatar}
+      />
+
+      {/* Graduation Certificate Modal (AI综合结业评语 + 柬埔寨-东盟国际学院校徽 + 印章 + 模版切换 + PDF下载) */}
+      <GraduationCertificateModal
+        isOpen={!!selectedStudentForCertificate}
+        onClose={() => setSelectedStudentForCertificate(null)}
+        student={
+          selectedStudentForCertificate
+            ? students.find(s => s.id === selectedStudentForCertificate.id) || selectedStudentForCertificate
+            : null
+        }
+        currentClass={
+          classes.find(c => c.id === selectedStudentForCertificate?.classId) || currentClass
+        }
+        semester={
+          semesters.find(
+            s =>
+              s.id ===
+              (classes.find(c => c.id === selectedStudentForCertificate?.classId)?.semesterId ||
+                currentClass.semesterId)
+          ) || semesters.find(s => s.id === selectedSemesterId)
+        }
+        assignments={assignments}
+        allClassStudents={students.filter(
+          s => s.classId === (selectedStudentForCertificate?.classId || currentClass.id)
+        )}
+        onUpdateStudentAvatar={handleUpdateStudentAvatar}
+        onOpenAvatarPicker={stu => setSelectedStudentForAvatarPicker(stu)}
       />
 
       {/* Reassuring Save Toast Notification */}

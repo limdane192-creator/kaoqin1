@@ -18,10 +18,26 @@ import {
   ArrowRightLeft,
   Edit3,
   UserCheck,
-  ArrowDownAZ
+  ArrowDownAZ,
+  Plus,
+  Minus,
+  Trash2,
+  Sparkles,
+  AlertTriangle,
+  AlertCircle,
+  RotateCcw
 } from 'lucide-react';
 import { ClassRoom, Student, AttendanceStatus, SessionMode } from '../types';
 import { calculateStudentAttendance } from '../utils/calculations';
+import {
+  parseWeekdaysFromSchedule,
+  parseFlexibleDate,
+  formatShortDate,
+  getWeekdayName,
+  autoGenerateSessionDates,
+  WEEKDAY_NAMES_CN
+} from '../utils/scheduleHelper';
+import { getSmartSessionsPerWeek, getWeekNumberForSession } from '../utils/cycleHelper';
 
 interface AttendanceViewProps {
   currentClass: ClassRoom;
@@ -37,6 +53,8 @@ interface AttendanceViewProps {
   onSwitchToRollCall?: () => void;
   onUpdateSessionConfig: (day: number, date: string, mode: SessionMode) => void;
   onBatchUpdateSessions?: (dates: Record<number, string>, modes: Record<number, SessionMode>) => void;
+  onAddSession?: () => void;
+  onDeleteSession?: () => void;
   onSaveData?: () => void;
   isJustSaved?: boolean;
   onSortClassStudentsAZ?: () => void;
@@ -56,6 +74,8 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   onSwitchToRollCall,
   onUpdateSessionConfig,
   onBatchUpdateSessions,
+  onAddSession,
+  onDeleteSession,
   onSaveData,
   isJustSaved,
   onSortClassStudentsAZ
@@ -83,18 +103,92 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     mode: SessionMode;
   } | null>(null);
 
+  // Session deletion confirmation modal
+  const [isConfirmDeleteSessionOpen, setIsConfirmDeleteSessionOpen] = useState(false);
+
+  // Auto-schedule options inside editingSession modal
+  const [selectedWeekdaysForEdit, setSelectedWeekdaysForEdit] = useState<number[]>([]);
+  const [autoScheduleNotice, setAutoScheduleNotice] = useState<string | null>(null);
+
   // Full schedule modal
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [tempDates, setTempDates] = useState<Record<number, string>>({});
   const [tempModes, setTempModes] = useState<Record<number, SessionMode>>({});
+  const [batchStartDay, setBatchStartDay] = useState<number>(1);
+  const [batchStartDate, setBatchStartDate] = useState<string>('');
+  const [batchWeekdays, setBatchWeekdays] = useState<number[]>([]);
+  const [batchScheduleNotice, setBatchScheduleNotice] = useState<string | null>(null);
 
   const totalSessions = currentClass.totalSessions || 30;
 
+  // Open single session modal with parsed weekdays
+  const handleOpenEditSession = (day: number, dateStr: string, mode: SessionMode) => {
+    setEditingSession({ day, date: dateStr, mode });
+    setSelectedWeekdaysForEdit(parseWeekdaysFromSchedule(currentClass.schedule));
+    setAutoScheduleNotice(null);
+  };
+
   // Open batch schedule modal
   const handleOpenScheduleModal = () => {
-    setTempDates({ ...(currentClass.sessionDates || {}) });
+    const existing = { ...(currentClass.sessionDates || {}) };
+    setTempDates(existing);
     setTempModes({ ...(currentClass.sessionModes || {}) });
+    setBatchStartDay(1);
+    setBatchStartDate(existing[1] || formatShortDate(new Date()));
+    setBatchWeekdays(parseWeekdaysFromSchedule(currentClass.schedule));
+    setBatchScheduleNotice(null);
     setIsScheduleModalOpen(true);
+  };
+
+  // 从当前编辑的课时开始，按班级上课星期规律自动顺延推算后续真实日期
+  const handleAutoCascadeFromCurrent = () => {
+    if (!editingSession || !editingSession.date.trim()) return;
+
+    const weekdays = selectedWeekdaysForEdit.length > 0
+      ? selectedWeekdaysForEdit
+      : parseWeekdaysFromSchedule(currentClass.schedule);
+
+    const generated = autoGenerateSessionDates({
+      fromDay: editingSession.day,
+      startDateStr: editingSession.date.trim(),
+      weekdays,
+      totalSessions,
+      existingDates: currentClass.sessionDates || {}
+    });
+
+    // 保存单课配置并顺延更新后续课时
+    if (onBatchUpdateSessions) {
+      onBatchUpdateSessions(generated, currentClass.sessionModes || {});
+    } else {
+      for (let d = editingSession.day; d <= totalSessions; d++) {
+        if (generated[d]) {
+          onUpdateSessionConfig(d, generated[d], currentClass.sessionModes?.[d] || 'offline');
+        }
+      }
+    }
+
+    const weekdayStr = weekdays.map(w => WEEKDAY_NAMES_CN[w]).join('/');
+    setAutoScheduleNotice(`已从第 ${editingSession.day} 课 (${editingSession.date}) 按【${weekdayStr}】自动顺延生成至第 ${totalSessions} 课真实日期！`);
+    setTimeout(() => setAutoScheduleNotice(null), 4000);
+  };
+
+  // 在排期与形式弹窗中一键推算排期
+  const handleAutoScheduleBatch = () => {
+    if (!batchStartDate.trim()) return;
+    const weekdays = batchWeekdays.length > 0 ? batchWeekdays : [1, 3];
+
+    const generated = autoGenerateSessionDates({
+      fromDay: batchStartDay,
+      startDateStr: batchStartDate.trim(),
+      weekdays,
+      totalSessions,
+      existingDates: tempDates
+    });
+
+    setTempDates(generated);
+    const weekdayStr = weekdays.map(w => WEEKDAY_NAMES_CN[w]).join('/');
+    setBatchScheduleNotice(`已从第 ${batchStartDay} 课 (${batchStartDate}) 按【${weekdayStr}】智能生成全周期排期！遇假期可直接在下方列表中单课修改。`);
+    setTimeout(() => setBatchScheduleNotice(null), 4500);
   };
 
   const handleSaveBatchSchedule = () => {
@@ -159,73 +253,36 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* Action / Helper Bar */}
-      <div className="bg-white px-4 py-3 rounded-xl border border-slate-200">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          {/* Left: Class info & legend */}
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-bold text-slate-900">{currentClass.name} 全周期考勤浏览台账</h2>
-              <span className="text-[11px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded font-normal">
-                （浏览核对模式 · 单击格子确定改动）
-              </span>
-              {onOpenEditClass && (
-                <button
-                  onClick={onOpenEditClass}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded cursor-pointer transition-colors border border-blue-200"
-                  title="修改当前班级归属学期、班级名称、排期课时与追加学生"
-                >
-                  <Settings2 className="w-3 h-3 text-blue-600" />
-                  <span>改班/修改归属学期</span>
-                </button>
-              )}
-              <span className="text-xs text-slate-400">·</span>
-              <span className="text-xs text-slate-500">
-                {currentClass.schedule} · 教室: {currentClass.room} · 共 {currentClass.totalSessions} 课时
-              </span>
-              <span className="text-xs text-slate-400">·</span>
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
-                <span>线下 {totalSessions - onlineCount} 节</span>
-                <span className="text-slate-300">/</span>
-                <span className="text-blue-600">线上网课 {onlineCount} 节</span>
-              </span>
-            </div>
-            {/* Status legend */}
-            <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-slate-500">
-              <span className="inline-flex items-center gap-1">
-                <span className="w-4 h-4 rounded bg-emerald-50 text-emerald-700 font-semibold text-[11px] flex items-center justify-center">1</span>
-                <span>出勤</span>
-              </span>
-              <span>·</span>
-              <span className="inline-flex items-center gap-1">
-                <span className="w-4 h-4 rounded bg-sky-50 text-sky-700 font-semibold text-[11px] flex items-center justify-center">L</span>
-                <span>迟到(3次-0.5)</span>
-              </span>
-              <span>·</span>
-              <span className="inline-flex items-center gap-1">
-                <span className="w-4 h-4 rounded bg-amber-50 text-amber-700 font-semibold text-[11px] flex items-center justify-center">P</span>
-                <span>请假(-0.25)</span>
-              </span>
-              <span>·</span>
-              <span className="inline-flex items-center gap-1">
-                <span className="w-4 h-4 rounded bg-rose-50 text-rose-700 font-semibold text-[11px] flex items-center justify-center">A</span>
-                <span>旷课(-0.5)</span>
-              </span>
-              <span>·</span>
-              <span className="inline-flex items-center gap-1">
-                <span className="w-4 h-4 rounded bg-slate-100 text-slate-400 text-[11px] flex items-center justify-center">-</span>
-                <span>停课/换班(不扣)</span>
-              </span>
-              <span className="text-slate-400 text-[11px] ml-1">（单击表格任意格子开启修改确认窗口，点表头编辑排期）</span>
-            </div>
+      {/* Action / Helper Bar (完全横向排布，防止文字折行下掉) */}
+      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-2.5">
+        {/* Row 1: 标题、改班入口与右侧操作按钮区 */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          {/* Left: Class Title & Modality Info */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-sm font-bold text-slate-900 whitespace-nowrap">
+              {currentClass.name} 全周期考勤浏览台账
+            </h2>
+            <span className="text-[11px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded font-normal whitespace-nowrap">
+              （浏览核对模式 · 单击格子确定改动）
+            </span>
+            {onOpenEditClass && (
+              <button
+                onClick={onOpenEditClass}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded cursor-pointer transition-colors border border-blue-200 whitespace-nowrap"
+                title="修改当前班级归属学期、班级名称、排期课时与追加学生"
+              >
+                <Settings2 className="w-3 h-3 text-blue-600" />
+                <span>改班/修改归属学期</span>
+              </button>
+            )}
           </div>
 
-          {/* Right: Batch operations & filter & Schedule Modal */}
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Right: Operational Buttons */}
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
             {onSwitchToRollCall && (
               <button
                 onClick={onSwitchToRollCall}
-                className="px-3 py-1 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                className="px-3 py-1 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
                 title="进入今日快速点名界面"
               >
                 <UserCheck className="w-3.5 h-3.5 text-white" />
@@ -236,7 +293,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             {/* Quick schedule manager button */}
             <button
               onClick={handleOpenScheduleModal}
-              className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
+              className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-md transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
               title="统一设定所有课时日期及线上/线下形式"
             >
               <Calendar className="w-3.5 h-3.5 text-slate-500" />
@@ -247,7 +304,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               <button
                 type="button"
                 onClick={onSortClassStudentsAZ}
-                className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
+                className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-md transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
                 title="按学生姓名 A-Z 拼音/字母升序重新排列全班学生并顺延重编学号"
               >
                 <ArrowDownAZ className="w-3.5 h-3.5 text-blue-600" />
@@ -255,7 +312,32 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               </button>
             )}
 
-            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-md p-0.5 text-xs">
+            {/* 手动添加或删除课时按钮 */}
+            {onAddSession && (
+              <button
+                type="button"
+                onClick={onAddSession}
+                className="px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors flex items-center gap-1 cursor-pointer shadow-2xs whitespace-nowrap"
+                title="多上了课时？点击增加 1 节课时，原有考勤与成绩规则不受影响"
+              >
+                <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                <span>+ 加1课</span>
+              </button>
+            )}
+
+            {onDeleteSession && totalSessions > 1 && (
+              <button
+                type="button"
+                onClick={() => setIsConfirmDeleteSessionOpen(true)}
+                className="px-2.5 py-1 text-xs font-medium text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-md transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                title="少上了课时？点击删除末尾多余课时"
+              >
+                <Minus className="w-3.5 h-3.5 text-rose-600" />
+                <span>- 减1课</span>
+              </button>
+            )}
+
+            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-md p-0.5 text-xs whitespace-nowrap">
               <span className="text-slate-400 pl-1.5 pr-0.5">第</span>
               <select
                 value={selectedDayForBatch}
@@ -286,7 +368,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
             <button
               onClick={() => setFilterWarningOnly(!filterWarningOnly)}
-              className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer whitespace-nowrap ${
                 filterWarningOnly
                   ? 'bg-rose-50 text-rose-700 border-rose-200 font-semibold'
                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
@@ -298,7 +380,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             {onOpenAddStudent && (
               <button
                 onClick={onOpenAddStudent}
-                className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
+                className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors flex items-center gap-1 cursor-pointer shadow-2xs whitespace-nowrap"
                 title="随时录入新学生或插班生（支持单人或批量）"
               >
                 <UserPlus className="w-3.5 h-3.5 text-blue-600" />
@@ -308,7 +390,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
             <button
               onClick={onOpenBatchImport}
-              className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
+              className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-md transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
               title="批量粘贴姓名导入名单"
             >
               <span>批量导入</span>
@@ -317,7 +399,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             {onSaveData && (
               <button
                 onClick={onSaveData}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition-all flex items-center gap-1 cursor-pointer ${
+                className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap ${
                   isJustSaved
                     ? 'bg-emerald-600 text-white border-emerald-600'
                     : 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800'
@@ -339,6 +421,57 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             )}
           </div>
         </div>
+
+        {/* Row 2: 纯横向排期详情与考勤图例条 (Horizontal Schedule & Legend Ribbon) */}
+        <div className="bg-slate-50/90 border border-slate-200 rounded-lg px-3 py-2 flex items-center justify-between gap-3 text-xs overflow-x-auto custom-scrollbar">
+          {/* 左侧：横向排期与课时形式明细 */}
+          <div className="flex items-center gap-2 whitespace-nowrap shrink-0 text-slate-700">
+            <span className="font-semibold text-slate-900">
+              {currentClass.schedule}
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>教室: <strong className="text-slate-800">{currentClass.room || '待定'}</strong></span>
+            <span className="text-slate-300">·</span>
+            <span>共 <strong className="text-blue-700">{totalSessions}</strong> 课时</span>
+            <span className="text-slate-300">·</span>
+            <span className="inline-flex items-center gap-1 bg-white border border-slate-200 px-2 py-0.5 rounded text-[11px]">
+              <span>线下 <strong>{totalSessions - onlineCount}</strong> 节</span>
+              <span className="text-slate-300">/</span>
+              <span className="text-blue-600 font-semibold">线上网课 <strong>{onlineCount}</strong> 节</span>
+            </span>
+          </div>
+
+          {/* 右侧：横向图例与操作提示 */}
+          <div className="flex items-center gap-2 whitespace-nowrap shrink-0">
+            <span className="inline-flex items-center gap-1 bg-white border border-emerald-200 px-2 py-0.5 rounded text-[11px] font-medium text-emerald-800 shadow-2xs">
+              <span className="w-3.5 h-3.5 rounded bg-emerald-600 text-white font-bold text-[10px] flex items-center justify-center">1</span>
+              <span>出勤</span>
+            </span>
+            <span className="text-slate-300">·</span>
+            <span className="inline-flex items-center gap-1 bg-white border border-sky-200 px-2 py-0.5 rounded text-[11px] font-medium text-sky-800 shadow-2xs">
+              <span className="w-3.5 h-3.5 rounded bg-sky-600 text-white font-bold text-[10px] flex items-center justify-center">L</span>
+              <span>迟到(3次-0.5)</span>
+            </span>
+            <span className="text-slate-300">·</span>
+            <span className="inline-flex items-center gap-1 bg-white border border-amber-200 px-2 py-0.5 rounded text-[11px] font-medium text-amber-800 shadow-2xs">
+              <span className="w-3.5 h-3.5 rounded bg-amber-600 text-white font-bold text-[10px] flex items-center justify-center">P</span>
+              <span>请假(-0.25)</span>
+            </span>
+            <span className="text-slate-300">·</span>
+            <span className="inline-flex items-center gap-1 bg-white border border-rose-200 px-2 py-0.5 rounded text-[11px] font-medium text-rose-800 shadow-2xs">
+              <span className="w-3.5 h-3.5 rounded bg-rose-600 text-white font-bold text-[10px] flex items-center justify-center">A</span>
+              <span>旷课(-0.5)</span>
+            </span>
+            <span className="text-slate-300">·</span>
+            <span className="inline-flex items-center gap-1 bg-white border border-slate-200 px-2 py-0.5 rounded text-[11px] font-medium text-slate-700 shadow-2xs">
+              <span className="w-3.5 h-3.5 rounded bg-slate-400 text-white font-bold text-[10px] flex items-center justify-center">-</span>
+              <span>停课/换班(不扣)</span>
+            </span>
+            <span className="text-slate-400 text-[11px] pl-1 font-normal">
+              （单击表格任意格子开启修改确认窗口，点表头编辑排期）
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Main Table Container */}
@@ -356,22 +489,34 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                   const dateStr = currentClass.sessionDates?.[day] || '';
                   const mode = currentClass.sessionModes?.[day] || 'offline';
                   const isOnline = mode === 'online';
+                  const parsedDate = parseFlexibleDate(dateStr);
+                  const weekdayLabel = parsedDate ? getWeekdayName(parsedDate) : '';
+                  const sessionsPerWeek = getSmartSessionsPerWeek(currentClass.schedule, totalSessions);
+                  const weekNum = getWeekNumberForSession(day, sessionsPerWeek);
 
                   return (
                     <th
                       key={day}
-                      onClick={() => setEditingSession({ day, date: dateStr, mode })}
-                      className={`py-1.5 px-1.5 border-r border-slate-100 text-center min-w-[42px] transition-colors cursor-pointer select-none group relative ${
+                      onClick={() => handleOpenEditSession(day, dateStr, mode)}
+                      className={`py-1.5 px-1.5 border-r border-slate-100 text-center min-w-[44px] transition-colors cursor-pointer select-none group relative ${
                         isOnline ? 'bg-sky-50/70 hover:bg-sky-100/80' : 'hover:bg-slate-100/80'
                       }`}
-                      title={`第${day}课 · ${dateStr || '点击输入日期'} · ${isOnline ? '线上上课' : '线下上课'} (点击可编辑日期与形式)`}
+                      title={`第${day}课 (第${weekNum}周) · ${dateStr ? `${dateStr} (${weekdayLabel || '点击编辑'})` : '点击输入日期'} · ${isOnline ? '线上上课' : '线下上课'} (点击可编辑日期与自动顺延排期)`}
                     >
+                      <div className="text-[8px] font-mono text-slate-400 group-hover:text-blue-500 leading-none">
+                        W{weekNum}
+                      </div>
                       <div className="font-semibold text-[11px] text-slate-700 group-hover:text-blue-600 transition-colors">
                         {day}
                       </div>
-                      <div className="text-[9px] text-slate-500 font-normal truncate max-w-[44px] mx-auto">
+                      <div className="text-[9px] text-slate-500 font-normal truncate max-w-[48px] mx-auto font-mono">
                         {dateStr || '-'}
                       </div>
+                      {weekdayLabel && (
+                        <div className="text-[8px] text-blue-600 scale-90 font-medium leading-none">
+                          {weekdayLabel}
+                        </div>
+                      )}
                       <div className="mt-0.5 flex justify-center">
                         {isOnline ? (
                           <span className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded font-medium bg-blue-100 text-blue-700 scale-90 origin-center">
@@ -386,6 +531,21 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                     </th>
                   );
                 })}
+
+                {/* 加课表头快捷按钮 */}
+                {onAddSession && (
+                  <th
+                    onClick={onAddSession}
+                    className="py-1 px-1.5 border-r border-slate-200 text-center min-w-[34px] bg-slate-50 hover:bg-emerald-50 text-slate-400 hover:text-emerald-700 transition-colors cursor-pointer select-none group"
+                    title="点击增加 1 节课时（多上课时可灵活追加）"
+                  >
+                    <div className="flex flex-col items-center justify-center gap-0.5">
+                      <Plus className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+                      <span className="text-[9px] font-bold text-emerald-700">加课</span>
+                    </div>
+                  </th>
+                )}
+
                 {/* 统计列 */}
                 <th className="py-2 px-2.5 border-r border-slate-100 text-center text-slate-700 font-medium">出勤</th>
                 <th className="py-2 px-2.5 border-r border-slate-100 text-center text-slate-700 font-medium">迟到</th>
@@ -399,7 +559,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             <tbody className="divide-y divide-slate-100 bg-white">
               {displayStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={totalSessions + 9} className="py-12 text-center text-slate-400">
+                  <td colSpan={totalSessions + (onAddSession ? 10 : 9)} className="py-12 text-center text-slate-400">
                     当前班级暂无学生或无符合预警条件的学生
                   </td>
                 </tr>
@@ -495,6 +655,13 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                           </td>
                         );
                       })}
+
+                      {/* 加课列占位格 */}
+                      {onAddSession && (
+                        <td className="border-r border-slate-100 bg-slate-50/20 text-center text-slate-300 text-[10px] select-none">
+                          -
+                        </td>
+                      )}
 
                       {/* 统计指标 */}
                       <td className="py-1.5 px-2.5 text-center font-mono tabular-nums text-slate-800 border-r border-slate-100">
@@ -592,151 +759,269 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       )}
 
       {/* Single Session Date & Modality Edit Modal */}
-      {editingSession && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-              <div className="flex items-center gap-1.5">
-                <Calendar className="w-4 h-4 text-blue-600" />
-                <h3 className="text-sm font-bold text-slate-900">
-                  修改第 {editingSession.day} 课时排期
-                </h3>
-              </div>
-              <button
-                onClick={() => setEditingSession(null)}
-                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {editingSession && (() => {
+        const parsedDate = parseFlexibleDate(editingSession.date);
+        const weekdayName = parsedDate ? getWeekdayName(parsedDate) : '';
 
-            <div className="mt-3.5 space-y-3.5 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  上课日期
-                </label>
+        return (
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5 border border-slate-200 animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col">
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
                 <div className="flex items-center gap-1.5">
-                  <input
-                    type="text"
-                    value={editingSession.date}
-                    onChange={e => setEditingSession({ ...editingSession, date: e.target.value })}
-                    placeholder="如: 08/24 或 9月15日"
-                    className="w-full text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
-                  />
+                  <Calendar className="w-4 h-4 text-blue-600" />
+                  <h3 className="text-sm font-bold text-slate-900">
+                    修改第 {editingSession.day} 课时排期
+                  </h3>
+                  <span className="text-[11px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded font-mono">
+                    总 {totalSessions} 课时
+                  </span>
+                </div>
+                <button
+                  onClick={() => setEditingSession(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="mt-3 space-y-3 text-xs overflow-y-auto custom-scrollbar pr-1">
+                {/* Date Input */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">
+                      上课日期 *
+                    </label>
+                    {parsedDate && (
+                      <span className="text-[11px] font-medium text-blue-700 bg-blue-50 px-2 py-0.2 rounded border border-blue-200">
+                        {parsedDate.getFullYear()}年{parsedDate.getMonth() + 1}月{parsedDate.getDate()}日 ({weekdayName})
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={editingSession.date}
+                      onChange={e => setEditingSession({ ...editingSession, date: e.target.value })}
+                      placeholder="如: 11/7, 11-07 或 2026-11-07"
+                      className="w-full text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono font-medium"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const today = new Date();
+                        setEditingSession({ ...editingSession, date: formatShortDate(today) });
+                      }}
+                      className="px-2.5 py-2 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg shrink-0 cursor-pointer font-medium"
+                      title="快速填入今日日期"
+                    >
+                      今天
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    支持如 11/7、11-07、11月7日 或 2026-11-07，系统将自动识别公历日历与星期。
+                  </p>
+                </div>
+
+                {/* 智能排期与后续自动顺延卡片 */}
+                <div className="bg-slate-50/90 border border-slate-200 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                      <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                      <span>根据班级时间自动排满真实日期</span>
+                    </div>
+                    <span className="text-[10px] text-blue-700 font-medium bg-white px-2 py-0.5 rounded border border-slate-200 truncate max-w-[170px]" title={currentClass.schedule}>
+                      {currentClass.schedule || '未设时间'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <div className="text-[11px] text-slate-500 mb-1 flex items-center justify-between">
+                      <span>排课星期规律：</span>
+                      <span className="text-[10px] text-slate-400">已自动从班级识别</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {WEEKDAY_NAMES_CN.map((name, idx) => {
+                        const isSelected = selectedWeekdaysForEdit.includes(idx);
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setSelectedWeekdaysForEdit(prev =>
+                                prev.includes(idx) ? prev.filter(w => w !== idx) : [...prev, idx].sort((a, b) => a - b)
+                              );
+                            }}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border cursor-pointer transition-colors ${
+                              isSelected
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            {name}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Quick presets */}
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      <span className="text-[10px] text-slate-400">快捷切换:</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedWeekdaysForEdit([1, 3])}
+                        className={`text-[10px] px-2 py-0.5 rounded border cursor-pointer ${
+                          selectedWeekdaysForEdit.length === 2 && selectedWeekdaysForEdit.includes(1) && selectedWeekdaysForEdit.includes(3)
+                            ? 'bg-blue-50 text-blue-700 border-blue-300 font-bold'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        周一/周三 (30课)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedWeekdaysForEdit([4, 5])}
+                        className={`text-[10px] px-2 py-0.5 rounded border cursor-pointer ${
+                          selectedWeekdaysForEdit.length === 2 && selectedWeekdaysForEdit.includes(4) && selectedWeekdaysForEdit.includes(5)
+                            ? 'bg-blue-50 text-blue-700 border-blue-300 font-bold'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        周四/周五 (20课)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedWeekdaysForEdit([2, 4])}
+                        className={`text-[10px] px-2 py-0.5 rounded border cursor-pointer ${
+                          selectedWeekdaysForEdit.length === 2 && selectedWeekdaysForEdit.includes(2) && selectedWeekdaysForEdit.includes(4)
+                            ? 'bg-blue-50 text-blue-700 border-blue-300 font-bold'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        周二/周四
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAutoCascadeFromCurrent}
+                    disabled={!editingSession.date.trim()}
+                    className="w-full mt-2 py-2 px-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+                    title="从当前课时输入的日期开始，按选定的上课星期规律自动顺延推算填充后续所有课时真实日期"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>从第 {editingSession.day} 课自动顺延生成至第 {totalSessions} 课</span>
+                  </button>
+
+                  <p className="text-[10px] text-slate-500 leading-tight">
+                    例如第1课填写 11/7，系统将如实按周四/周五或周一/周三生成公历真实日期。若遇假期，后续可在表格中直接单课手动修改。
+                  </p>
+
+                  {autoScheduleNotice && (
+                    <div className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded p-1.5 flex items-center gap-1 font-medium animate-in fade-in">
+                      <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>{autoScheduleNotice}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Modality Selector */}
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1.5">
+                    上课形式标记
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingSession({ ...editingSession, mode: 'offline' })}
+                      className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+                        editingSession.mode === 'offline'
+                          ? 'bg-slate-900 text-white border-slate-900 shadow-2xs font-semibold'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <MapPin className="w-3.5 h-3.5" />
+                      <span>线下实体课</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditingSession({ ...editingSession, mode: 'online' })}
+                      className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+                        editingSession.mode === 'online'
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-semibold'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Video className="w-3.5 h-3.5" />
+                      <span>线上网课</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Step Previous / Next buttons */}
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-slate-500">
+                  <button
+                    type="button"
+                    disabled={editingSession.day <= 1}
+                    onClick={() => {
+                      const prevDay = editingSession.day - 1;
+                      onUpdateSessionConfig(editingSession.day, editingSession.date, editingSession.mode);
+                      handleOpenEditSession(
+                        prevDay,
+                        currentClass.sessionDates?.[prevDay] || '',
+                        currentClass.sessionModes?.[prevDay] || 'offline'
+                      );
+                    }}
+                    className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>上一课</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={editingSession.day >= totalSessions}
+                    onClick={() => {
+                      const nextDay = editingSession.day + 1;
+                      onUpdateSessionConfig(editingSession.day, editingSession.date, editingSession.mode);
+                      handleOpenEditSession(
+                        nextDay,
+                        currentClass.sessionDates?.[nextDay] || '',
+                        currentClass.sessionModes?.[nextDay] || 'offline'
+                      );
+                    }}
+                    className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <span>下一课</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setEditingSession(null)}
+                    className="px-3.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-md cursor-pointer"
+                  >
+                    取消
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
-                      const today = new Date();
-                      const m = String(today.getMonth() + 1).padStart(2, '0');
-                      const d = String(today.getDate()).padStart(2, '0');
-                      setEditingSession({ ...editingSession, date: `${m}/${d}` });
+                      onUpdateSessionConfig(editingSession.day, editingSession.date, editingSession.mode);
+                      setEditingSession(null);
                     }}
-                    className="px-2 py-2 text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg shrink-0 cursor-pointer"
-                    title="填入今日月日"
+                    className="px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-md cursor-pointer"
                   >
-                    今天
+                    保存本课
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  支持任意文本格式（如 09/01 或 2026-09-01）
-                </p>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1.5">
-                  上课形式标记
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditingSession({ ...editingSession, mode: 'offline' })}
-                    className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
-                      editingSession.mode === 'offline'
-                        ? 'bg-slate-900 text-white border-slate-900 shadow-2xs font-semibold'
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    <MapPin className="w-3.5 h-3.5" />
-                    <span>线下实体课</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setEditingSession({ ...editingSession, mode: 'online' })}
-                    className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
-                      editingSession.mode === 'online'
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-semibold'
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Video className="w-3.5 h-3.5" />
-                    <span>线上网课</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Step Previous / Next buttons */}
-              <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-slate-500">
-                <button
-                  type="button"
-                  disabled={editingSession.day <= 1}
-                  onClick={() => {
-                    const prevDay = editingSession.day - 1;
-                    onUpdateSessionConfig(editingSession.day, editingSession.date, editingSession.mode);
-                    setEditingSession({
-                      day: prevDay,
-                      date: currentClass.sessionDates?.[prevDay] || '',
-                      mode: currentClass.sessionModes?.[prevDay] || 'offline'
-                    });
-                  }}
-                  className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                  <span>上一课</span>
-                </button>
-
-                <button
-                  type="button"
-                  disabled={editingSession.day >= totalSessions}
-                  onClick={() => {
-                    const nextDay = editingSession.day + 1;
-                    onUpdateSessionConfig(editingSession.day, editingSession.date, editingSession.mode);
-                    setEditingSession({
-                      day: nextDay,
-                      date: currentClass.sessionDates?.[nextDay] || '',
-                      mode: currentClass.sessionModes?.[nextDay] || 'offline'
-                    });
-                  }}
-                  className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
-                >
-                  <span>下一课</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingSession(null)}
-                  className="px-3.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-md cursor-pointer"
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onUpdateSessionConfig(editingSession.day, editingSession.date, editingSession.mode);
-                    setEditingSession(null);
-                  }}
-                  className="px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-md cursor-pointer"
-                >
-                  保存
-                </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Full Schedule & Modality Batch Modal */}
       {isScheduleModalOpen && (
@@ -760,9 +1045,148 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               </button>
             </div>
 
-            {/* Quick Batch Tools */}
-            <div className="py-2.5 px-3 bg-slate-50 rounded-lg border border-slate-200 my-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-              <span className="text-slate-600 font-medium">快捷批量操作:</span>
+            {/* Smart Auto-Schedule Bar */}
+            <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 my-2 text-xs">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="font-bold text-blue-900 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                  <span>智能排期与真历推算 (可指定起始课时与日期)</span>
+                </span>
+                <span className="text-[11px] text-blue-600">按真实公历星期自动顺延</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                <div className="sm:col-span-3 flex items-center gap-1">
+                  <span className="text-slate-600 shrink-0">从第:</span>
+                  <select
+                    value={batchStartDay}
+                    onChange={e => setBatchStartDay(Number(e.target.value))}
+                    className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-xs font-bold text-blue-900 focus:outline-none"
+                  >
+                    {Array.from({ length: totalSessions }, (_, i) => i + 1).map(day => (
+                      <option key={day} value={day}>第 {day} 课</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="sm:col-span-5 flex items-center gap-1">
+                  <span className="text-slate-600 shrink-0">起始日期:</span>
+                  <input
+                    type="text"
+                    value={batchStartDate}
+                    onChange={e => setBatchStartDate(e.target.value)}
+                    placeholder="如 11/7 或 2026-11-07"
+                    className="flex-1 bg-white border border-slate-300 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setBatchStartDate(formatShortDate(new Date()))}
+                    className="px-2 py-1 bg-white border border-slate-200 hover:bg-slate-100 rounded text-[11px] text-slate-700 shrink-0 cursor-pointer"
+                  >
+                    今天
+                  </button>
+                </div>
+
+                <div className="sm:col-span-4 flex items-center justify-end">
+                  <button
+                    type="button"
+                    onClick={handleAutoScheduleBatch}
+                    className="w-full sm:w-auto px-3.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-md shadow-2xs transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>智能顺延全排期</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Weekday Selector & Presets */}
+              <div className="flex flex-wrap items-center gap-2 mt-2 pt-2 border-t border-blue-200/60">
+                <span className="text-[11px] text-slate-600 font-medium">每逢星期:</span>
+                <div className="flex items-center gap-1">
+                  {[
+                    { day: 1, label: '一' },
+                    { day: 2, label: '二' },
+                    { day: 3, label: '三' },
+                    { day: 4, label: '四' },
+                    { day: 5, label: '五' },
+                    { day: 6, label: '六' },
+                    { day: 0, label: '日' }
+                  ].map(w => {
+                    const active = batchWeekdays.includes(w.day);
+                    return (
+                      <button
+                        key={w.day}
+                        type="button"
+                        onClick={() => {
+                          setBatchWeekdays(prev =>
+                            active ? prev.filter(x => x !== w.day) : [...prev, w.day].sort()
+                          );
+                        }}
+                        className={`w-6 h-6 rounded text-[11px] font-bold cursor-pointer transition-colors ${
+                          active
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        {w.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="h-3 w-[1px] bg-blue-200 mx-0.5" />
+
+                <div className="flex flex-wrap items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBatchWeekdays([1, 3]);
+                    }}
+                    className="text-[10px] px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700 hover:bg-blue-50 cursor-pointer"
+                  >
+                    周一/三 (30课)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBatchWeekdays([4, 5]);
+                    }}
+                    className="text-[10px] px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700 hover:bg-blue-50 cursor-pointer"
+                  >
+                    周四/五 (20课)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBatchWeekdays([2, 4]);
+                    }}
+                    className="text-[10px] px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700 hover:bg-blue-50 cursor-pointer"
+                  >
+                    周二/四 (20课)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBatchWeekdays([1, 2, 3, 4, 5]);
+                    }}
+                    className="text-[10px] px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700 hover:bg-blue-50 cursor-pointer"
+                  >
+                    周一至五 (每天)
+                  </button>
+                </div>
+              </div>
+
+              {batchScheduleNotice && (
+                <div className="mt-2 p-1.5 bg-emerald-100 border border-emerald-300 rounded text-emerald-800 text-[11px] font-medium flex items-center gap-1.5 animate-in fade-in">
+                  <Check className="w-3.5 h-3.5 shrink-0 text-emerald-700" />
+                  <span>{batchScheduleNotice}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Batch Modality Tools */}
+            <div className="py-2 px-3 bg-slate-50 rounded-lg border border-slate-200 my-1 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="text-slate-600 font-medium">形式快速切换:</span>
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
@@ -771,9 +1195,9 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                     for (let i = 1; i <= totalSessions; i++) next[i] = 'offline';
                     setTempModes(next);
                   }}
-                  className="px-2 py-1 bg-white border border-slate-200 rounded text-slate-700 hover:bg-slate-100 cursor-pointer"
+                  className="px-2 py-0.5 bg-white border border-slate-200 rounded text-slate-700 hover:bg-slate-100 cursor-pointer text-[11px]"
                 >
-                  全部设为线下
+                  全部线下
                 </button>
                 <button
                   type="button"
@@ -782,23 +1206,22 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                     for (let i = 1; i <= totalSessions; i++) next[i] = 'online';
                     setTempModes(next);
                   }}
-                  className="px-2 py-1 bg-white border border-slate-200 rounded text-blue-600 hover:bg-blue-50 cursor-pointer"
+                  className="px-2 py-0.5 bg-white border border-slate-200 rounded text-blue-600 hover:bg-blue-50 cursor-pointer text-[11px]"
                 >
-                  全部设为线上
+                  全部线上
                 </button>
                 <button
                   type="button"
                   onClick={() => {
                     const next: Record<number, SessionMode> = {};
                     for (let i = 1; i <= totalSessions; i++) {
-                      // 每逢周五或第5/10/15/20/25/30课设为线上，其他线下
                       next[i] = i % 5 === 0 ? 'online' : 'offline';
                     }
                     setTempModes(next);
                   }}
-                  className="px-2 py-1 bg-white border border-slate-200 rounded text-slate-700 hover:bg-slate-100 cursor-pointer"
+                  className="px-2 py-0.5 bg-white border border-slate-200 rounded text-slate-700 hover:bg-slate-100 cursor-pointer text-[11px]"
                 >
-                  周期网课 (逢5节线上)
+                  逢5节线上
                 </button>
               </div>
             </div>
@@ -810,6 +1233,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                   const dateVal = tempDates[day] ?? currentClass.sessionDates?.[day] ?? '';
                   const modeVal = tempModes[day] ?? currentClass.sessionModes?.[day] ?? 'offline';
                   const isOnline = modeVal === 'online';
+                  const weekdayTag = getWeekdayName(dateVal);
 
                   return (
                     <div
@@ -818,20 +1242,27 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                         isOnline ? 'bg-sky-50/60 border-sky-200' : 'bg-white border-slate-200 hover:border-slate-300'
                       }`}
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <span className="w-6 h-6 rounded bg-slate-100 text-slate-700 flex items-center justify-center font-bold font-mono text-[11px] shrink-0">
                           {day}
                         </span>
                         <input
                           type="text"
                           value={dateVal}
-                          placeholder={`如 08/${day < 10 ? '0' + day : day}`}
+                          placeholder={`如 11/07`}
                           onChange={e => {
                             const val = e.target.value;
                             setTempDates(prev => ({ ...prev, [day]: val }));
                           }}
-                          className="w-24 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
                         />
+                        {weekdayTag ? (
+                          <span className="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium shrink-0">
+                            {weekdayTag}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-300 shrink-0">待定</span>
+                        )}
                       </div>
 
                       {/* Modality toggle switch */}
@@ -868,7 +1299,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             {/* Footer */}
             <div className="flex items-center justify-between pt-3 mt-2 border-t border-slate-100">
               <span className="text-xs text-slate-500">
-                共 {totalSessions} 课时 · 线上 {Object.values(tempModes).filter(m => m === 'online').length} 课时
+                共 {totalSessions} 课时 · 遇放假/调休可随时直接修改日期
               </span>
               <div className="flex gap-2">
                 <button
@@ -886,6 +1317,66 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                   保存课时排期
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 确认删除末尾课时弹窗 */}
+      {isConfirmDeleteSessionOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-600">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    确定删除第 {totalSessions} 课时吗？
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    少上了课时或提前结课？可安全移除末尾课时
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsConfirmDeleteSessionOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3 text-xs text-slate-600">
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <div className="font-semibold text-amber-900 mb-1">课时与考勤规则说明:</div>
+                <ul className="list-disc list-inside space-y-1 text-amber-800">
+                  <li>删除后班级总课时将由 <strong>{totalSessions} 课</strong> 调整为 <strong>{totalSessions - 1} 课</strong>。</li>
+                  <li>末尾第 {totalSessions} 课的考勤记录与排期信息将被清理。</li>
+                  <li><strong>考勤分数计算规则完全保持不变</strong>：出勤1分、迟到3次扣0.5、请假扣0.25、旷课扣0.5、停课/空白不扣分。</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 mt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsConfirmDeleteSessionOpen(false)}
+                className="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDeleteSession) onDeleteSession();
+                  setIsConfirmDeleteSessionOpen(false);
+                }}
+                className="px-5 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors cursor-pointer shadow-xs"
+              >
+                确定删除第 {totalSessions} 课
+              </button>
             </div>
           </div>
         </div>

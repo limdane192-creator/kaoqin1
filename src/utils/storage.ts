@@ -52,20 +52,40 @@ const initialJournalEntries: TeacherJournalEntry[] = [
   }
 ];
 
+export function sortSemestersNewestFirst(semesters: Semester[]): Semester[] {
+  return [...semesters].sort((a, b) => {
+    // 1. 优先提取学期名称中的数字 (如 49学期 vs 48学期, 50学期 vs 49学期)
+    const numA = parseInt(a.name.replace(/\D/g, ''), 10);
+    const numB = parseInt(b.name.replace(/\D/g, ''), 10);
+    if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+      return numB - numA; // 降序：最新学期排在最前面/第一排
+    }
+    // 2. 其次根据创建时间戳降序
+    const timeA = a.createdAt || 0;
+    const timeB = b.createdAt || 0;
+    if (timeA !== timeB) return timeB - timeA;
+    // 3. 兜底按中文本地字符倒序
+    return b.name.localeCompare(a.name, 'zh-Hans-CN', { numeric: true });
+  });
+}
+
 export function loadSemesters(): Semester[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.SEMESTERS);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return sortSemestersNewestFirst(parsed);
+      }
     }
   } catch {}
-  return initialSemesters;
+  return sortSemestersNewestFirst(initialSemesters);
 }
 
 export function saveSemesters(semesters: Semester[]) {
   try {
-    localStorage.setItem(STORAGE_KEYS.SEMESTERS, JSON.stringify(semesters));
+    const sorted = sortSemestersNewestFirst(semesters);
+    localStorage.setItem(STORAGE_KEYS.SEMESTERS, JSON.stringify(sorted));
   } catch {}
 }
 
@@ -74,7 +94,8 @@ export function loadSelectedSemesterId(): string {
     const saved = localStorage.getItem(STORAGE_KEYS.SELECTED_SEMESTER);
     if (saved) return saved;
   } catch {}
-  return initialSemesters[0]?.id || 'sem_48';
+  const sorted = sortSemestersNewestFirst(initialSemesters);
+  return sorted[0]?.id || 'sem_49';
 }
 
 export function saveSelectedSemesterId(semesterId: string) {

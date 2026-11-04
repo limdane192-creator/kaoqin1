@@ -6,6 +6,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Plus, Search, Calendar, ChevronDown, Check, FolderPlus, Layers, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { ClassRoom, Student, Assignment, Semester } from '../types';
+import { sortSemestersNewestFirst } from '../utils/storage';
 
 interface ClassSelectorProps {
   semesters: Semester[];
@@ -49,9 +50,10 @@ export const ClassSelector: React.FC<ClassSelectorProps> = ({
   const [semesterToDelete, setSemesterToDelete] = useState<Semester | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const currentSemester = semesters.find(s => s.id === selectedSemesterId) || semesters[0] || {
-    id: 'sem_48',
-    name: '48学期'
+  const sortedSemesters = sortSemestersNewestFirst(semesters);
+  const currentSemester = sortedSemesters.find(s => s.id === selectedSemesterId) || sortedSemesters[0] || {
+    id: 'sem_49',
+    name: '49学期'
   };
 
   // Close dropdown when clicking outside
@@ -87,34 +89,64 @@ export const ClassSelector: React.FC<ClassSelectorProps> = ({
   ).length;
 
   return (
-    <div className="bg-white border-b border-slate-200">
+    <div className="bg-white/90 backdrop-blur-sm border-b border-amber-200/60 font-sans">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5">
         {/* Top Bar: Semester Switcher & Global Search */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 pb-2 border-b border-slate-100">
-          <div className="flex items-center gap-3">
-            {/* Semester Dropdown Switcher */}
-            <div className="relative" ref={menuRef}>
-              <div className="flex items-center gap-1.5 text-xs">
-                <span className="text-slate-500 font-medium flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                  当前学期:
-                </span>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 pb-2 border-b border-amber-100">
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Semester Switcher: Sorted Newest to Oldest, displayed prominently in first row */}
+            <div className="relative flex items-center gap-2 flex-wrap" ref={menuRef}>
+              <span className="text-amber-900 font-bold text-xs flex items-center gap-1 shrink-0">
+                <span>🌱</span>
+                <span>当前学期:</span>
+              </span>
+
+              {/* Direct Quick-switch Semester Pills: Newest to Oldest */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {sortedSemesters.map(sem => {
+                  const isSelected = sem.id === selectedSemesterId;
+                  const classCount = allClasses.filter(c => c.semesterId === sem.id).length;
+                  return (
+                    <button
+                      key={sem.id}
+                      type="button"
+                      onClick={() => onSelectSemester(sem.id)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs ${
+                        isSelected
+                          ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white border-amber-400 shadow-sm shadow-amber-500/25 ring-2 ring-amber-300/40'
+                          : 'bg-amber-50/70 hover:bg-amber-100 text-amber-950 border-amber-200/80'
+                      }`}
+                      title={`点击直接切换到【${sem.name}】(${classCount}个班级)`}
+                    >
+                      <Layers className={`w-3.5 h-3.5 ${isSelected ? 'text-white' : 'text-amber-700'}`} />
+                      <span>{sem.name}</span>
+                      {isSelected ? (
+                        <span className="text-[10px] bg-white/25 text-white px-1.5 py-0.2 rounded-full font-bold">进行中 ✨</span>
+                      ) : (
+                        <span className="text-[10px] text-amber-800/70 font-mono">({classCount}班)</span>
+                      )}
+                    </button>
+                  );
+                })}
+
+                {/* Dropdown / Manage Button */}
                 <button
                   type="button"
                   onClick={() => setIsSemesterMenuOpen(!isSemesterMenuOpen)}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-slate-900 bg-slate-100 hover:bg-slate-200/80 rounded-md transition-colors cursor-pointer border border-slate-200/80 shadow-2xs"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:text-amber-950 hover:bg-amber-100/70 rounded-xl transition-colors border border-dashed border-amber-300 cursor-pointer"
+                  title="增删学期与学期管理"
                 >
-                  <Layers className="w-3.5 h-3.5 text-blue-600" />
-                  <span>{currentSemester.name}</span>
-                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isSemesterMenuOpen ? 'rotate-180' : ''}`} />
+                  <FolderPlus className="w-3.5 h-3.5 text-amber-700" />
+                  <span>管理/新建</span>
+                  <ChevronDown className={`w-3 h-3 text-amber-600 transition-transform ${isSemesterMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
 
-                {/* 当前学期的直接删除按钮 */}
+                {/* Current semester quick delete button */}
                 {onDeleteSemester && (
                   <button
                     type="button"
                     onClick={() => setSemesterToDelete(currentSemester)}
-                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer border border-slate-200/80 shadow-2xs"
+                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer border border-amber-200/80 shadow-2xs"
                     title={`删除当前学期【${currentSemester.name}】`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -125,12 +157,13 @@ export const ClassSelector: React.FC<ClassSelectorProps> = ({
               {/* Semester Dropdown Menu */}
               {isSemesterMenuOpen && (
                 <div className="absolute left-0 top-full mt-1.5 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-1.5 text-xs animate-in fade-in slide-in-from-top-1 duration-150">
-                  <div className="px-2 py-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                    切换教学学期 (按学期隔离班级)
+                  <div className="px-2 py-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                    <span>切换学期 (新到旧排列)</span>
+                    <span className="text-[10px] text-blue-600 font-normal">最新在最前</span>
                   </div>
 
                   <div className="space-y-0.5 my-1 max-h-52 overflow-y-auto custom-scrollbar">
-                    {semesters.map(sem => {
+                    {sortedSemesters.map(sem => {
                       const isSelected = sem.id === selectedSemesterId;
                       const classCount = allClasses.filter(c => c.semesterId === sem.id).length;
                       return (
@@ -304,8 +337,8 @@ export const ClassSelector: React.FC<ClassSelectorProps> = ({
         {/* Bottom Bar: Class Tabs filtered by current semester */}
         <div className="pt-2 flex items-center gap-1.5 overflow-x-auto pb-0.5 custom-scrollbar">
           {classes.length === 0 ? (
-            <div className="flex items-center gap-2 py-1 text-xs text-slate-500">
-              <span>该学期暂无班级，点击右侧添加：</span>
+            <div className="flex items-center gap-2 py-1 text-xs text-amber-800">
+              <span>该学期暂无班级，点击右侧添加班级：</span>
             </div>
           ) : (
             classes.map(c => {
@@ -316,15 +349,17 @@ export const ClassSelector: React.FC<ClassSelectorProps> = ({
                 <button
                   key={c.id}
                   onClick={() => onSelectClass(c.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors shrink-0 cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition-all shrink-0 cursor-pointer ${
                     isSelected
-                      ? 'bg-slate-900 text-white shadow-2xs font-semibold'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      ? 'bg-amber-500 text-white shadow-xs font-black shadow-amber-500/25 ring-2 ring-amber-300/40'
+                      : 'bg-amber-50/50 hover:bg-amber-100/70 text-slate-700 hover:text-amber-950 border border-amber-200/50'
                   }`}
                 >
                   <span>{c.name}</span>
-                  <span className="text-[11px] font-mono tabular-nums opacity-75">
-                    {count}
+                  <span className={`text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded-full font-bold ${
+                    isSelected ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-900'
+                  }`}>
+                    🎒 {count}人
                   </span>
                 </button>
               );
@@ -333,20 +368,20 @@ export const ClassSelector: React.FC<ClassSelectorProps> = ({
 
           <button
             onClick={onOpenNewClass}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50/70 hover:bg-blue-100 rounded-md transition-colors shrink-0 cursor-pointer border border-blue-200 ml-1 shadow-2xs"
+            className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 rounded-xl transition-all shrink-0 cursor-pointer border border-amber-300 ml-1 shadow-2xs"
             title={`在 ${currentSemester.name} 中新建班级`}
           >
-            <Plus className="w-3.5 h-3.5 text-blue-600" />
+            <Plus className="w-3.5 h-3.5 text-amber-700" />
             <span>加班</span>
           </button>
 
           {classes.length > 0 && onOpenEditClass && (
             <button
               onClick={onOpenEditClass}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 rounded-md transition-colors shrink-0 cursor-pointer border border-slate-300 ml-1 shadow-2xs"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-amber-50 rounded-xl transition-all shrink-0 cursor-pointer border border-amber-200 ml-1 shadow-2xs"
               title="修改当前班级的归属学期、名称、课程代码、排期与课时数"
             >
-              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
+              <SlidersHorizontal className="w-3.5 h-3.5 text-amber-700" />
               <span>改班/修改归属学期</span>
             </button>
           )}

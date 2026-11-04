@@ -1,0 +1,159 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
+ * 课时真实日历排期辅助工具库
+ * 支持：自动解析班级上课时间（如周一/周三、周四/周五）、真实日历顺延推算、假期手动调整、增删课时日期推导
+ */
+
+export const WEEKDAY_NAMES_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+/**
+ * 从上课时间安排字符串中提取每周上课的星期几 (0=周日, 1=周一, ..., 6=周六)
+ */
+export function parseWeekdaysFromSchedule(scheduleStr: string): number[] {
+  if (!scheduleStr) return [1, 3]; // 默认周一/周三
+  const s = scheduleStr.trim();
+  const set = new Set<number>();
+
+  if (s.includes('周一至周五') || s.includes('周一到周五') || s.includes('工作日') || s.includes('每天')) {
+    return [1, 2, 3, 4, 5];
+  }
+  if (s.includes('周末') || s.includes('双休')) {
+    return [6, 0];
+  }
+
+  // 星期一到星期日
+  if (s.includes('周一') || s.includes('星期一') || s.includes('礼拜一') || /mon/i.test(s)) set.add(1);
+  if (s.includes('周二') || s.includes('星期二') || s.includes('礼拜二') || /tue/i.test(s)) set.add(2);
+  if (s.includes('周三') || s.includes('星期三') || s.includes('礼拜三') || /wed/i.test(s)) set.add(3);
+  if (s.includes('周四') || s.includes('星期四') || s.includes('礼拜四') || /thu/i.test(s)) set.add(4);
+  if (s.includes('周五') || s.includes('星期五') || s.includes('礼拜五') || /fri/i.test(s)) set.add(5);
+  if (s.includes('周六') || s.includes('星期六') || s.includes('礼拜六') || /sat/i.test(s)) set.add(6);
+  if (s.includes('周日') || s.includes('周天') || s.includes('星期日') || s.includes('星期天') || /sun/i.test(s)) set.add(0);
+
+  const arr = Array.from(set).sort((a, b) => a - b);
+  return arr.length > 0 ? arr : [1, 3];
+}
+
+/**
+ * 解析用户输入的任意格式日期文本 (如 11/7, 11-07, 11月7日, 2026-11-07)
+ */
+export function parseFlexibleDate(dateStr: string, defaultYear = new Date().getFullYear()): Date | null {
+  if (!dateStr || !dateStr.trim()) return null;
+  const str = dateStr.trim();
+
+  // 1. 匹配 YYYY-MM-DD 或 YYYY/MM/DD
+  const ymdMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (ymdMatch) {
+    const y = parseInt(ymdMatch[1], 10);
+    const m = parseInt(ymdMatch[2], 10) - 1;
+    const d = parseInt(ymdMatch[3], 10);
+    const date = new Date(y, m, d);
+    return isNaN(date.getTime()) ? null : date;
+  }
+
+  // 2. 匹配 MM/DD 或 MM-DD 或 M月D日
+  const mdMatch = str.match(/^(\d{1,2})[-/.月](\d{1,2})/);
+  if (mdMatch) {
+    const m = parseInt(mdMatch[1], 10) - 1;
+    const d = parseInt(mdMatch[2], 10);
+    const date = new Date(defaultYear, m, d);
+    return isNaN(date.getTime()) ? null : date;
+  }
+
+  // 3. 原生 Date 解析 fallback
+  const fallback = new Date(str);
+  return isNaN(fallback.getTime()) ? null : fallback;
+}
+
+/**
+ * 格式化为 MM/DD (两位月/两位日，方便表格对齐)
+ */
+export function formatShortDate(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${m}/${day}`;
+}
+
+/**
+ * 获取星期几中文简称 (支持 Date 对象或任意日期字符串)
+ */
+export function getWeekdayName(d: Date | string | null | undefined): string {
+  if (!d) return '';
+  if (typeof d === 'string') {
+    const parsed = parseFlexibleDate(d);
+    return parsed ? WEEKDAY_NAMES_CN[parsed.getDay()] || '' : '';
+  }
+  if (isNaN(d.getTime())) return '';
+  return WEEKDAY_NAMES_CN[d.getDay()] || '';
+}
+
+/**
+ * 自动排课算法：从起始课时开始，按班级上课星期规律顺延排满至总课时
+ * 例如：起始课 11/7 (周五)，班级为周四/周五，排第2课为 11/13(周四)，第3课为 11/14(周五)...
+ */
+export function autoGenerateSessionDates({
+  fromDay = 1,
+  startDateStr,
+  weekdays,
+  totalSessions = 30,
+  existingDates = {},
+  baseYear = new Date().getFullYear()
+}: {
+  fromDay?: number;
+  startDateStr: string;
+  weekdays: number[];
+  totalSessions: number;
+  existingDates?: Record<number, string>;
+  baseYear?: number;
+}): Record<number, string> {
+  const dates: Record<number, string> = { ...existingDates };
+  const startDate = parseFlexibleDate(startDateStr, baseYear);
+  if (!startDate) return dates;
+
+  // 确保有效星期规律
+  const activeWeekdays = weekdays.length > 0 ? weekdays : [startDate.getDay()];
+
+  // 设置起始课日期
+  dates[fromDay] = formatShortDate(startDate);
+
+  let current = new Date(startDate.getTime());
+
+  for (let day = fromDay + 1; day <= totalSessions; day++) {
+    // 顺延查找下一个符合上课星期的真实日期
+    do {
+      current.setDate(current.getDate() + 1);
+    } while (!activeWeekdays.includes(current.getDay()));
+
+    dates[day] = formatShortDate(current);
+  }
+
+  return dates;
+}
+
+/**
+ * 当教师在考勤中添加新课时 (例如第 31 课) 时，根据上一课日期自动推算下一课真实日期
+ */
+export function calculateNextSessionDate(
+  lastDateStr: string,
+  weekdays: number[],
+  baseYear = new Date().getFullYear()
+): string {
+  const lastDate = parseFlexibleDate(lastDateStr, baseYear);
+  if (!lastDate) {
+    const today = new Date();
+    return formatShortDate(today);
+  }
+
+  const activeWeekdays = weekdays.length > 0 ? weekdays : [1, 3];
+  const next = new Date(lastDate.getTime());
+
+  do {
+    next.setDate(next.getDate() + 1);
+  } while (!activeWeekdays.includes(next.getDay()));
+
+  return formatShortDate(next);
+}

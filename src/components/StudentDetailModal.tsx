@@ -13,7 +13,8 @@ import {
   XCircle,
   Clock,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  Sparkles
 } from 'lucide-react';
 import { Student, ClassRoom, Assignment } from '../types';
 import {
@@ -22,6 +23,9 @@ import {
   getEvaluationBadgeColor,
   computeStudentScores
 } from '../utils/calculations';
+import { CutePandaStudent, CuteAttendanceCat, CuteHomeworkBunny, CuteSunBadge } from './CuteIllustrations';
+import { StudentAvatarBadge } from '../utils/avatarHelper';
+import { StudentDiagnosisChart } from './StudentDiagnosisChart';
 
 interface StudentDetailModalProps {
   student: Student | null;
@@ -30,6 +34,8 @@ interface StudentDetailModalProps {
   assignments: Assignment[];
   onOpenTransfer?: (student: Student) => void;
   onOpenEdit?: (student: Student) => void;
+  onOpenAvatarPicker?: (student: Student) => void;
+  onOpenCertificate?: (student: Student) => void;
 }
 
 export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
@@ -38,7 +44,9 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   classes,
   assignments,
   onOpenTransfer,
-  onOpenEdit
+  onOpenEdit,
+  onOpenAvatarPicker,
+  onOpenCertificate
 }) => {
   if (!student) return null;
 
@@ -48,11 +56,19 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   const hwStats = calculateStudentHomework(student.id, classAssignments);
   const badgeColor = getEvaluationBadgeColor(student.evaluation.grade);
 
-  const sc = computeStudentScores(student.scores);
+  const targetAttDays = currentClass?.totalSessions || 30;
+  const targetHwCount = classAssignments.length > 0 ? classAssignments.length : (currentClass?.totalHwTarget || 10);
+  const sc = computeStudentScores(
+    student.scores,
+    targetAttDays,
+    targetHwCount,
+    attStats.attendanceScore10,
+    hwStats.homeworkScore10
+  );
 
   // 整理请假/旷课历史记录
   const leaveRecords: { day: number; date: string; status: string; reason: string }[] = [];
-  const totalDays = currentClass?.totalSessions || 30;
+  const totalDays = targetAttDays;
 
   for (let d = 1; d <= totalDays; d++) {
     const status = student.attendance[d];
@@ -70,41 +86,78 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col border border-slate-200 overflow-hidden">
-        {/* Header */}
-        <div className="p-5 border-b border-slate-100 flex items-start justify-between bg-slate-50/70">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h2 className="text-lg font-bold text-slate-900">{student.name}</h2>
-              <span className="font-mono text-xs text-slate-500">学号 No.{student.no}</span>
-              {student.gender && (
-                <span className="text-[11px] text-slate-400 bg-white border border-slate-200 px-1.5 py-0.2 rounded font-normal">
-                  {student.gender}
-                </span>
-              )}
-              {student.evaluation.grade && (
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full font-bold border ${badgeColor.bg} ${badgeColor.text} ${badgeColor.border}`}
-                >
-                  {student.evaluation.grade}
-                </span>
-              )}
+        {/* Header with Cute Avatar Badge and neat layout */}
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-start justify-between bg-gradient-to-r from-blue-50/70 via-slate-50 to-emerald-50/40">
+          <div className="flex items-center gap-3">
+            <div
+              className="relative group/avatar cursor-pointer"
+              onClick={() => onOpenAvatarPicker?.(student)}
+              title="点击更换学生卡通头像或上传本人真实照片"
+            >
+              <StudentAvatarBadge student={student} size="lg" className="rounded-2xl shadow-2xs ring-2 ring-blue-100 hover:ring-blue-400 transition-all" />
+              <div className="absolute -bottom-1 -right-1 bg-blue-600 text-white rounded-full p-1 shadow-2xs">
+                <Sparkles className="w-2.5 h-2.5" />
+              </div>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
-              所在班级：<span className="font-semibold text-slate-800">{currentClass?.name || '未知班级'}</span>
-              {' · '}
-              {currentClass?.schedule}
-              {currentClass?.room && ` · 教室: ${currentClass.room}`}
-            </p>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg font-bold text-slate-900">{student.name}</h2>
+                <span className="font-mono text-xs text-slate-500 bg-white border border-slate-200 px-1.5 py-0.2 rounded font-semibold">
+                  No.{student.no}
+                </span>
+                {student.gender && (
+                  <span className="text-[11px] text-slate-500 bg-white border border-slate-200 px-1.5 py-0.2 rounded font-normal">
+                    {student.gender}
+                  </span>
+                )}
+                {student.evaluation.grade && (
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full font-bold border ${badgeColor.bg} ${badgeColor.text} ${badgeColor.border}`}
+                  >
+                    {student.evaluation.grade}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-600 mt-1 flex items-center gap-1.5 flex-wrap">
+                <span className="font-semibold text-blue-700 bg-blue-100/80 px-1.5 py-0.2 rounded text-[11px]">
+                  {currentClass?.name || '未知班级'}
+                </span>
+                <span>{currentClass?.schedule}</span>
+                {currentClass?.room && <span className="text-slate-400">· 教室: {currentClass.room}</span>}
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+            {onOpenCertificate && (
+              <button
+                onClick={() => {
+                  onOpenCertificate(student);
+                  onClose();
+                }}
+                className="px-2.5 py-1 text-xs font-bold text-amber-900 bg-amber-100/80 hover:bg-amber-200 border border-amber-300 rounded-md transition-colors cursor-pointer shadow-2xs flex items-center gap-1"
+                title="查看结业证书，支持 HTML 下载、一键打印与导入 WPS 打印"
+              >
+                <Award className="w-3.5 h-3.5 text-amber-700" />
+                <span>结业证书</span>
+              </button>
+            )}
+            {onOpenAvatarPicker && (
+              <button
+                onClick={() => onOpenAvatarPicker(student)}
+                className="px-2 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 rounded-md transition-colors cursor-pointer shadow-2xs"
+                title="挑选卡通头像或上传照片"
+              >
+                选头像
+              </button>
+            )}
             {onOpenEdit && (
               <button
                 onClick={() => {
                   onOpenEdit(student);
                   onClose();
                 }}
-                className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
+                className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 rounded-md transition-colors cursor-pointer shadow-2xs"
                 title="修改姓名、学号或性别"
               >
                 修改信息
@@ -116,7 +169,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                   onOpenTransfer(student);
                   onClose();
                 }}
-                className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-md transition-colors cursor-pointer"
+                className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-md transition-colors cursor-pointer shadow-2xs"
                 title="换班/转班 (早班改晚班等，保留全部历史分数)"
               >
                 换班/转班
@@ -133,36 +186,54 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
 
         {/* Content body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar text-xs">
-          {/* Quick Metrics Cards */}
+          {/* Quick Metrics Cards with Cute Icons */}
           <div className="grid grid-cols-3 gap-3">
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
-              <div className="text-slate-400 text-[11px]">出勤率</div>
+            <div className="bg-emerald-50/50 p-3 rounded-xl border border-emerald-100 text-center relative overflow-hidden">
+              <div className="flex items-center justify-center gap-1.5 text-emerald-800 text-[11px] font-semibold">
+                <CuteAttendanceCat size={20} />
+                <span>出勤 (10%)</span>
+              </div>
               <div className="text-lg font-bold font-mono text-emerald-700 mt-0.5">
-                {attStats.attendanceRate}%
+                {sc.attWeighted ?? attStats.attendanceScore10}%
               </div>
-              <div className="text-[10px] text-slate-400">
-                出勤 {attStats.presentCount} · 假 {attStats.leaveCount} · 旷 {attStats.absentCount}
-              </div>
-            </div>
-
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
-              <div className="text-slate-400 text-[11px]">作业完成率</div>
-              <div className="text-lg font-bold font-mono text-blue-700 mt-0.5">
-                {hwStats.completionRate}%
-              </div>
-              <div className="text-[10px] text-slate-400">
-                已交 {hwStats.submittedCount + hwStats.lateCount} · 缺交 {hwStats.missingCount}
+              <div className="text-[10px] text-slate-500">
+                出勤 {attStats.presentCount}天 · 假 {attStats.leaveCount} · 旷 {attStats.absentCount}
               </div>
             </div>
 
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
-              <div className="text-slate-400 text-[11px]">学期总评分 (100%)</div>
+            <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-100 text-center relative overflow-hidden">
+              <div className="flex items-center justify-center gap-1.5 text-amber-900 text-[11px] font-semibold">
+                <CuteHomeworkBunny size={20} />
+                <span>作业 (10%)</span>
+              </div>
+              <div className="text-lg font-bold font-mono text-teal-700 mt-0.5">
+                {sc.hwWeighted ?? hwStats.homeworkScore10}%
+              </div>
+              <div className="text-[10px] text-slate-500">
+                已交 {hwStats.submittedCount + hwStats.lateCount}次 / 共 {targetHwCount}次
+              </div>
+            </div>
+
+            <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 text-center relative overflow-hidden">
+              <div className="flex items-center justify-center gap-1.5 text-indigo-900 text-[11px] font-semibold">
+                <CuteSunBadge size={20} />
+                <span>总评分 (100%)</span>
+              </div>
               <div className="text-lg font-bold font-mono text-indigo-700 mt-0.5">
-                {sc.manualTotal ?? '-'}
-                <span className="text-xs font-normal text-slate-400 ml-0.5">分</span>
+                {sc.manualTotal !== undefined ? (
+                  <>
+                    {sc.manualTotal}
+                    <span className="text-xs font-normal text-slate-400 ml-0.5">分</span>
+                  </>
+                ) : (
+                  <>
+                    {Number(((sc.attWeighted ?? attStats.attendanceScore10) + (sc.hwWeighted ?? hwStats.homeworkScore10)).toFixed(2))}
+                    <span className="text-xs font-normal text-slate-400 ml-0.5">分 (平时累积)</span>
+                  </>
+                )}
               </div>
-              <div className="text-[10px] text-slate-400">
-                HW 10% · Quiz 20% · Mid 20% · 口语 10% · Final 30%
+              <div className="text-[10px] text-slate-500">
+                考勤10% · 作业10% · 考核80%
               </div>
             </div>
           </div>
@@ -173,8 +244,8 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               <Award className="w-4 h-4 text-indigo-600" />
               <span>学期各考查分项与权重明细 (考勤10% + 作业10% + Quiz20% + 期中20% + 口语10% + 期末30% = 100%)</span>
             </h3>
-            <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
-              <div className="grid grid-cols-7 divide-x divide-slate-200 text-center border-b border-slate-200 bg-slate-100/60 font-semibold text-[10px] sm:text-[11px] py-1.5">
+            <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+              <div className="grid grid-cols-7 divide-x divide-slate-200 text-center border-b border-slate-200 bg-slate-100/70 font-semibold text-[10px] sm:text-[11px] py-1.5">
                 <div>考勤 (10%)</div>
                 <div>作业 (10%)</div>
                 <div>Quiz 1 (10%)</div>
@@ -184,37 +255,99 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                 <div>期末 Final (30%)</div>
               </div>
               <div className="grid grid-cols-7 divide-x divide-slate-200 text-center font-mono py-2 bg-white text-xs">
-                <div>
-                  <div className="font-bold text-emerald-800">{sc.attWeighted ?? 0}%</div>
-                  <div className="text-[10px] text-slate-400">{sc.attDays ?? attStats.presentCount}天 / {sc.attTarget || 30}天</div>
+                {/* 考勤 */}
+                <div title={`考勤评分：满分10分，请假扣${attStats.deductions.leaveDeduction}分，旷课扣${attStats.deductions.absentDeduction}分，迟到扣${attStats.deductions.lateDeduction}分`}>
+                  <div className="font-bold text-emerald-800 text-sm">
+                    {sc.attWeighted ?? attStats.attendanceScore10}%
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-medium">
+                    {attStats.presentCount}天 / {targetAttDays}天
+                  </div>
+                  <div className="text-[9px]">
+                    {attStats.deductions.totalDeductions > 0 ? (
+                      <span className="text-rose-600 font-medium">扣{attStats.deductions.totalDeductions}分</span>
+                    ) : (
+                      <span className="text-emerald-600 font-medium">全勤满分</span>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <div className="font-bold text-teal-800">{sc.hwWeighted ?? 0}%</div>
-                  <div className="text-[10px] text-slate-400">{sc.hwCount ?? 0}次 / {sc.hwTarget || 20}次</div>
+
+                {/* 作业 */}
+                <div title={`作业得分：满分10分，实得${hwStats.totalEarnedScore}/${hwStats.totalPossibleScore}分，已交${hwStats.submittedCount + hwStats.lateCount}次，缺交${hwStats.missingCount}次`}>
+                  <div className="font-bold text-teal-800 text-sm">
+                    {sc.hwWeighted ?? hwStats.homeworkScore10}%
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-medium">
+                    {hwStats.submittedCount + hwStats.lateCount}次 / {targetHwCount}次
+                  </div>
+                  <div className="text-[9px]">
+                    {hwStats.missingCount > 0 ? (
+                      <span className="text-amber-600 font-medium">缺{hwStats.missingCount}次</span>
+                    ) : (
+                      <span className="text-emerald-600 font-medium">全部交齐</span>
+                    )}
+                  </div>
                 </div>
+
+                {/* Quiz 1 */}
                 <div>
-                  <div className="font-bold text-sky-800">{sc.quiz1Weighted ?? 0}%</div>
-                  <div className="text-[10px] text-slate-400">原分 {sc.quiz1 ?? '-'}</div>
+                  <div className="font-bold text-sky-800 text-sm">
+                    {sc.quiz1Weighted !== undefined ? `${sc.quiz1Weighted}%` : '-'}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {sc.quiz1 !== undefined ? `原分 ${sc.quiz1}` : '未录入'}
+                  </div>
                 </div>
+
+                {/* Quiz 2 */}
                 <div>
-                  <div className="font-bold text-sky-800">{sc.quiz2Weighted ?? 0}%</div>
-                  <div className="text-[10px] text-slate-400">原分 {sc.quiz2 ?? '-'}</div>
+                  <div className="font-bold text-sky-800 text-sm">
+                    {sc.quiz2Weighted !== undefined ? `${sc.quiz2Weighted}%` : '-'}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {sc.quiz2 !== undefined ? `原分 ${sc.quiz2}` : '未录入'}
+                  </div>
                 </div>
+
+                {/* 期中 Mid */}
                 <div>
-                  <div className="font-bold text-indigo-800">{sc.midtermWeighted ?? 0}%</div>
-                  <div className="text-[10px] text-slate-400">原分 {sc.midterm ?? '-'}</div>
+                  <div className="font-bold text-indigo-800 text-sm">
+                    {sc.midtermWeighted !== undefined ? `${sc.midtermWeighted}%` : '-'}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {sc.midterm !== undefined ? `原分 ${sc.midterm}` : '未录入'}
+                  </div>
                 </div>
+
+                {/* 口语 Sp */}
                 <div>
-                  <div className="font-bold text-amber-800">{sc.oralWeighted ?? 0}%</div>
-                  <div className="text-[10px] text-slate-400">原分 {sc.oral ?? '-'}</div>
+                  <div className="font-bold text-amber-800 text-sm">
+                    {sc.oralWeighted !== undefined ? `${sc.oralWeighted}%` : '-'}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {sc.oral !== undefined ? `原分 ${sc.oral}` : '未录入'}
+                  </div>
                 </div>
+
+                {/* 期末 Final */}
                 <div>
-                  <div className="font-bold text-violet-800">{sc.finalExamWeighted ?? 0}%</div>
-                  <div className="text-[10px] text-slate-400">原分 {sc.finalExam ?? '-'}</div>
+                  <div className="font-bold text-violet-800 text-sm">
+                    {sc.finalExamWeighted !== undefined ? `${sc.finalExamWeighted}%` : '-'}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {sc.finalExam !== undefined ? `原分 ${sc.finalExam}` : '未录入'}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
+
+          {/* 学情优点与缺点多维图表诊断分析 (可视化图表 + 亮点优势与薄弱环节) */}
+          <StudentDiagnosisChart
+            student={student}
+            currentClass={currentClass}
+            assignments={assignments}
+          />
 
           {/* Section 1: 请假与旷课历史记录 */}
           <div>

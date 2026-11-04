@@ -172,7 +172,7 @@ export const EditClassModal: React.FC<EditClassModalProps> = ({
                 type="text"
                 value={schedule}
                 onChange={e => setSchedule(e.target.value)}
-                placeholder="例如: 周一/周三 14:00 - 15:30"
+                placeholder="例如: 周一/周三 8:00 - 9:30"
                 className="w-full text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -188,6 +188,60 @@ export const EditClassModal: React.FC<EditClassModalProps> = ({
                 onChange={e => setTotalSessions(Number(e.target.value))}
                 className="w-full text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
               />
+            </div>
+          </div>
+
+          {/* Quick Schedule Presets */}
+          <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5">
+            <div className="text-[11px] font-semibold text-slate-600 flex items-center justify-between">
+              <span>快捷排课预设 (根据周几与10周时长规律):</span>
+              <span className="text-[10px] text-slate-400">点击自动填入时间与总课时</span>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => {
+                  setSchedule('周一/周三 8:00 - 9:30');
+                  setTotalSessions(30);
+                }}
+                className="p-1.5 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded text-left text-slate-700 transition-colors cursor-pointer"
+              >
+                <div className="font-semibold text-blue-900">周一/周三 8:00 - 9:30</div>
+                <div className="text-[10px] text-slate-500">10周共 30 课时</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSchedule('周四/周五 8:00 - 9:30');
+                  setTotalSessions(20);
+                }}
+                className="p-1.5 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded text-left text-slate-700 transition-colors cursor-pointer"
+              >
+                <div className="font-semibold text-blue-900">周四/周五 8:00 - 9:30</div>
+                <div className="text-[10px] text-slate-500">10周共 20 课时</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSchedule('周二/周四 14:00 - 15:30');
+                  setTotalSessions(20);
+                }}
+                className="p-1.5 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded text-left text-slate-700 transition-colors cursor-pointer"
+              >
+                <div className="font-semibold text-blue-900">周二/周四 14:00 - 15:30</div>
+                <div className="text-[10px] text-slate-500">10周共 20 课时</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSchedule('周一至周五 8:00 - 9:30');
+                  setTotalSessions(50);
+                }}
+                className="p-1.5 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded text-left text-slate-700 transition-colors cursor-pointer"
+              >
+                <div className="font-semibold text-blue-900">周一至周五 每天</div>
+                <div className="text-[10px] text-slate-500">10周共 50 课时</div>
+              </button>
             </div>
           </div>
 

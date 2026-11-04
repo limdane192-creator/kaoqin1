@@ -6,8 +6,8 @@
 import { ClassRoom, Student, Assignment, Semester } from '../types';
 
 export const initialSemesters: Semester[] = [
-  { id: 'sem_48', name: '48学期' },
-  { id: 'sem_49', name: '49学期' }
+  { id: 'sem_49', name: '49学期', createdAt: 1730000000000 },
+  { id: 'sem_48', name: '48学期', createdAt: 1720000000000 }
 ];
 
 export const defaultSessionDates: Record<number, string> = {

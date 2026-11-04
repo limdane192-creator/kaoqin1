@@ -101,6 +101,8 @@ export interface StudentHomeworkStats {
   completionRate: number;
   homeworkScore10: number; // 作业得分(10分制，满分10分=10%)
   averageScore: number;
+  totalEarnedScore: number; // 实际得分总和
+  totalPossibleScore: number; // 应得满分总和 (考核分母)
   missingAssignments: {
     assignmentId: string;
     title: string;
@@ -109,18 +111,33 @@ export interface StudentHomeworkStats {
   }[];
 }
 
+/**
+ * 作业成绩与提交得分计算：
+ * 1. 动态适应实际布置次数（学期不固定20次，可多可少，以实际布置为基准）
+ * 2. 满分10分 (占学期总评 10%)
+ * 3. 每次作业满分默认为 a.maxScore 或 100分：
+ *    - 全部提交且都满分 -> 获得 10.0 满分
+ *    - 缺交 (missing/未交) -> 扣分扣比例 (该次得0分，计入应得分母)
+ *    - 提交了但分数不高 -> 按实际得分比例扣分
+ *    - 豁免 (excused) -> 不计入考核分母，不扣分
+ *    - 仅勾选已交但未录入具体小分 -> 默认按该次作业满分计算
+ */
 export function calculateStudentHomework(
   studentId: string,
   assignments: Assignment[],
-  targetHwCount: number = 20
+  customTargetCount?: number
 ): StudentHomeworkStats {
-  let totalAssigned = assignments.length;
+  const totalAssigned = assignments.length;
   let submittedCount = 0;
   let lateCount = 0;
   let missingCount = 0;
   let excusedCount = 0;
-  let totalScoreSum = 0;
   let gradedCount = 0;
+  let totalScoreSum = 0;
+
+  let totalEarnedScore = 0;
+  let totalPossibleScore = 0;
+
   const missingAssignments: {
     assignmentId: string;
     title: string;
@@ -129,7 +146,9 @@ export function calculateStudentHomework(
   }[] = [];
 
   for (const a of assignments) {
-    const sub: StudentSubmission | undefined = a.submissions[studentId];
+    const maxScore = a.maxScore && a.maxScore > 0 ? a.maxScore : 100;
+    const sub: StudentSubmission | undefined = a.submissions?.[studentId];
+
     if (!sub || sub.status === 'missing') {
       missingCount++;
       missingAssignments.push({
@@ -138,38 +157,64 @@ export function calculateStudentHomework(
         assignedDate: a.assignedDate,
         dueDate: a.dueDate
       });
-    } else if (sub.status === 'submitted') {
-      submittedCount++;
-      if (typeof sub.score === 'number') {
-        totalScoreSum += sub.score;
-        gradedCount++;
-      }
-    } else if (sub.status === 'late') {
-      lateCount++;
-      if (typeof sub.score === 'number') {
-        totalScoreSum += sub.score;
-        gradedCount++;
-      }
+      // 缺交：该次作业实得 0 分，但计入总应得满分分母（按比例扣除作业分）
+      totalPossibleScore += maxScore;
     } else if (sub.status === 'excused') {
+      // 豁免/免修：不计入学生考核分母，不扣分
       excusedCount++;
+    } else if (sub.status === 'submitted' || sub.status === 'late') {
+      if (sub.status === 'submitted') {
+        submittedCount++;
+      } else {
+        lateCount++;
+      }
+
+      totalPossibleScore += maxScore;
+
+      if (typeof sub.score === 'number') {
+        const earned = Math.max(0, Math.min(maxScore, sub.score));
+        totalEarnedScore += earned;
+        totalScoreSum += sub.score;
+        gradedCount++;
+      } else {
+        // 如果教师勾选了已交或补交，但未填具体打分，默认获得该作业的完整基础满分
+        totalEarnedScore += maxScore;
+        totalScoreSum += maxScore;
+        gradedCount++;
+      }
     }
   }
 
-  const effectiveTotal = Math.max(1, targetHwCount || totalAssigned || 20);
-  const doneCount = submittedCount + lateCount;
-  const completionRate = Math.min(100, Math.round((doneCount / effectiveTotal) * 100));
-
-  // 10分制作业得分 (占总评 10%)
-  // 若有具体打分取平均分折算，否则按完成次数比例折算 (满分10分)
-  let homeworkScore10: number;
-  if (gradedCount > 0) {
-    const avg = totalScoreSum / gradedCount; // 0-100
-    homeworkScore10 = Number(Math.min(10, avg * 0.1).toFixed(2));
-  } else {
-    homeworkScore10 = Number(Math.min(10, (doneCount / effectiveTotal) * 10).toFixed(2));
+  // 若教师设定了高于实际布置次数的特定固定目标（如提前锁定期末20次，但当前只布置了部分），
+  // 则差额部分按未布置/未提交折算；若未指定或选择自适应（<= 实际布置数），则完全按实际布置作业为准
+  let effectivePossible = totalPossibleScore;
+  if (customTargetCount && customTargetCount > totalAssigned && totalAssigned > 0) {
+    const extraHwCount = customTargetCount - totalAssigned;
+    effectivePossible += extraHwCount * 100;
   }
 
-  const averageScore = gradedCount > 0 ? Math.round(totalScoreSum / gradedCount) : 0;
+  const effectiveAssignmentsCount = customTargetCount && customTargetCount > totalAssigned
+    ? customTargetCount - excusedCount
+    : Math.max(0, totalAssigned - excusedCount);
+
+  const doneCount = submittedCount + lateCount;
+  let completionRate = 100;
+  let homeworkScore10 = 10;
+
+  if (effectiveAssignmentsCount > 0) {
+    completionRate = Math.min(100, Math.round((doneCount / effectiveAssignmentsCount) * 100));
+    // 教学实用原则：按做的次数来折算作业总分 (完成次数 / 应完成总数 * 10分)
+    homeworkScore10 = Number(((doneCount / effectiveAssignmentsCount) * 10).toFixed(2));
+  } else if (totalAssigned === 0) {
+    // 尚未布置任何作业时，不扣分，作业满分10分，完成率100%
+    completionRate = 100;
+    homeworkScore10 = 10;
+  }
+
+  // 平均分（基于已提交打分的平均百分制得分）
+  const averageScore = gradedCount > 0
+    ? Math.round(totalScoreSum / gradedCount)
+    : (totalAssigned > 0 && doneCount === 0 ? 0 : 100);
 
   return {
     totalAssigned,
@@ -178,8 +223,10 @@ export function calculateStudentHomework(
     missingCount,
     excusedCount,
     completionRate,
-    homeworkScore10,
+    homeworkScore10: Math.max(0, Math.min(10, homeworkScore10)),
     averageScore,
+    totalEarnedScore,
+    totalPossibleScore: effectivePossible,
     missingAssignments
   };
 }

@@ -83,6 +83,7 @@ export interface Student {
   attendanceNotes: Record<number, string>; // 对应第几天的请假理由或旷课情况
   scores: StudentScores;
   evaluation: StudentEvaluation;
+  avatar?: string; // 卡通头像ID (如 'panda', 'cat', 'bunny') 或 Base64 自定义头像图片
 }
 
 export type SubmissionStatus = 'submitted' | 'missing' | 'late' | 'excused';
