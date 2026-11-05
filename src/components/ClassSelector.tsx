@@ -20,6 +20,7 @@ interface ClassSelectorProps {
   onSelectClass: (id: string) => void;
   onOpenNewClass: () => void;
   onOpenEditClass?: () => void;
+  onOpenSemesterReset?: () => void;
   students: Student[];
   assignments?: Assignment[];
   searchQuery: string;
@@ -39,6 +40,7 @@ export const ClassSelector: React.FC<ClassSelectorProps> = ({
   onSelectClass,
   onOpenNewClass,
   onOpenEditClass,
+  onOpenSemesterReset,
   students,
   searchQuery,
   setSearchQuery,
@@ -152,6 +154,18 @@ export const ClassSelector: React.FC<ClassSelectorProps> = ({
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 )}
+
+                {/* 新学期清空重置快捷按钮 */}
+                {onOpenSemesterReset && (
+                  <button
+                    type="button"
+                    onClick={onOpenSemesterReset}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-black text-amber-950 bg-gradient-to-r from-amber-200 to-amber-300 hover:from-amber-300 hover:to-amber-400 border border-amber-400 rounded-xl transition-all cursor-pointer shadow-2xs active:scale-98"
+                    title="还没开始上新学期？点击一键清空考勤打卡与作业记录，或重置班级花名册"
+                  >
+                    <span>🧹 清空备开学</span>
+                  </button>
+                )}
               </div>
 
               {/* Semester Dropdown Menu */}
@@ -216,7 +230,7 @@ export const ClassSelector: React.FC<ClassSelectorProps> = ({
                     })}
                   </div>
 
-                  <div className="pt-1.5 mt-1 border-t border-slate-100">
+                  <div className="pt-1.5 mt-1 border-t border-slate-100 space-y-1">
                     {!isAddingSemester ? (
                       <button
                         type="button"
@@ -247,6 +261,19 @@ export const ClassSelector: React.FC<ClassSelectorProps> = ({
                           </button>
                         </div>
                       </form>
+                    )}
+
+                    {onOpenSemesterReset && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSemesterMenuOpen(false);
+                          onOpenSemesterReset();
+                        }}
+                        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-amber-950 hover:bg-amber-50 rounded-lg font-bold transition-colors cursor-pointer border-t border-slate-100 mt-1 pt-1.5"
+                      >
+                        <span>🧹 新学期清空重置中心...</span>
+                      </button>
                     )}
                   </div>
                 </div>

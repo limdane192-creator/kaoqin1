@@ -321,8 +321,8 @@ export function computeStudentScores(
   const finalExam = typeof scores.finalExam === 'number' ? scores.finalExam : undefined;
   const finalExamWeighted = finalExam !== undefined ? Number((finalExam * 0.3).toFixed(2)) : undefined;
 
-  // 综合总分 (100%满分)
-  const sum = Number(
+  // 综合总分 (100%满分) 自动加总：考勤(10%) + 作业(10%) + 小测(20%) + 期中(20%) + 口语(10%) + 期末(30%)
+  const calculatedSum = Number(
     (
       (attWeighted || 0) +
       (hwWeighted || 0) +
@@ -352,8 +352,24 @@ export function computeStudentScores(
     oralWeighted,
     finalExam,
     finalExamWeighted,
-    manualTotal: scores.manualTotal !== undefined ? scores.manualTotal : (sum > 0 ? sum : undefined)
+    calculatedSum,
+    manualTotal: scores.manualTotal !== undefined ? scores.manualTotal : (calculatedSum > 0 ? calculatedSum : undefined)
   };
+}
+
+/**
+ * 根据学期总分自动计算评定等第：
+ * - 90分及以上: 优秀 (A)
+ * - 80分 ~ 89.9分: 良好 (B)
+ * - 60分 ~ 79.9分: 合格 (C)
+ * - 60分以下: 待提高 (D)
+ */
+export function getGradeFromScore(score: number | undefined | null): '优秀' | '良好' | '合格' | '待提高' {
+  if (typeof score !== 'number' || isNaN(score) || score <= 0) return '待提高';
+  if (score >= 90) return '优秀';
+  if (score >= 80) return '良好';
+  if (score >= 60) return '合格';
+  return '待提高';
 }
 
 /**

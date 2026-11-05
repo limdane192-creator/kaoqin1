@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { ClassRoom, Student, AttendanceStatus, SessionMode } from '../types';
 import { calculateStudentAttendance } from '../utils/calculations';
+import { CuteCalendarPicker, CuteDatePickerInput } from './CuteCalendarPicker';
 import {
   parseWeekdaysFromSchedule,
   parseFlexibleDate,
@@ -785,40 +786,43 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               </div>
 
               <div className="mt-3 space-y-3 text-xs overflow-y-auto custom-scrollbar pr-1">
-                {/* Date Input */}
+                {/* Date Input with Interactive Calendar Picker */}
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block font-semibold text-slate-700">
-                      上课日期 *
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block font-semibold text-slate-800">
+                      公历上课日期 (日历手动填表，点选不易出错)
                     </label>
                     {parsedDate && (
-                      <span className="text-[11px] font-medium text-blue-700 bg-blue-50 px-2 py-0.2 rounded border border-blue-200">
+                      <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
                         {parsedDate.getFullYear()}年{parsedDate.getMonth() + 1}月{parsedDate.getDate()}日 ({weekdayName})
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5">
+
+                  {/* Interactive Calendar Card */}
+                  <div className="flex justify-center bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+                    <CuteCalendarPicker
+                      value={editingSession.date}
+                      onChange={(newDate) => {
+                        setEditingSession({ ...editingSession, date: newDate });
+                      }}
+                      showFormatToggle
+                      className="w-full shadow-none border-0 p-1 bg-transparent"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <span className="text-[11px] text-slate-500 shrink-0">已选排期:</span>
                     <input
                       type="text"
                       value={editingSession.date}
                       onChange={e => setEditingSession({ ...editingSession, date: e.target.value })}
-                      placeholder="如: 11/7, 11-07 或 2026-11-07"
-                      className="w-full text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono font-medium"
+                      placeholder="如: 11/04 或 2026-11-04"
+                      className="w-full text-xs p-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono font-bold text-blue-900 bg-white"
                     />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const today = new Date();
-                        setEditingSession({ ...editingSession, date: formatShortDate(today) });
-                      }}
-                      className="px-2.5 py-2 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg shrink-0 cursor-pointer font-medium"
-                      title="快速填入今日日期"
-                    >
-                      今天
-                    </button>
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1">
-                    支持如 11/7、11-07、11月7日 或 2026-11-07，系统将自动识别公历日历与星期。
+                    在上方日历中直接点击日期即可填表，支持跨月切换、快速“今天”与“清空”，彻底避免打字出错。
                   </p>
                 </div>
 
@@ -1069,14 +1073,13 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                   </select>
                 </div>
 
-                <div className="sm:col-span-5 flex items-center gap-1">
-                  <span className="text-slate-600 shrink-0">起始日期:</span>
-                  <input
-                    type="text"
+                <div className="sm:col-span-5 flex items-center gap-1.5">
+                  <span className="text-slate-600 shrink-0 text-xs">起始日期:</span>
+                  <CuteDatePickerInput
                     value={batchStartDate}
-                    onChange={e => setBatchStartDate(e.target.value)}
-                    placeholder="如 11/7 或 2026-11-07"
-                    className="flex-1 bg-white border border-slate-300 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    onChange={val => setBatchStartDate(val)}
+                    placeholder="选起始日期"
+                    className="flex-1"
                   />
                   <button
                     type="button"
@@ -1246,18 +1249,14 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                         <span className="w-6 h-6 rounded bg-slate-100 text-slate-700 flex items-center justify-center font-bold font-mono text-[11px] shrink-0">
                           {day}
                         </span>
-                        <input
-                          type="text"
+                        <CuteDatePickerInput
                           value={dateVal}
-                          placeholder={`如 11/07`}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setTempDates(prev => ({ ...prev, [day]: val }));
-                          }}
-                          className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          onChange={val => setTempDates(prev => ({ ...prev, [day]: val }))}
+                          placeholder="选择日期"
+                          showWeekdayBadge={false}
                         />
                         {weekdayTag ? (
-                          <span className="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium shrink-0">
+                          <span className="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold shrink-0">
                             {weekdayTag}
                           </span>
                         ) : (

@@ -135,7 +135,7 @@ export const initialClasses: ClassRoom[] = [
   }
 ];
 
-export const initialStudents: Student[] = [
+const rawInitialStudents: Student[] = [
   // MW8-9 学生
   {
     id: 's_mw89_1',
@@ -664,8 +664,32 @@ export const initialStudents: Student[] = [
   }
 ];
 
-export const initialAssignments: Assignment[] = [
-  // MW8-9 班级作业
+// 新学期尚未开课：所有学生的考勤记录、请假旷课备注、各项成绩、评语全部清空初始化（花名册完整保留）
+export const initialStudents: Student[] = rawInitialStudents.map(s => ({
+  ...s,
+  attendance: {},
+  attendanceNotes: {},
+  scores: {},
+  evaluation: {
+    grade: '',
+    remarks: '',
+    tags: [],
+    behaviorNotes: []
+  }
+}));
+
+const rawInitialAssignments: Assignment[] = [
+  // MW8-9 班级作业 (含即将到期 <48小时 任务)
+  {
+    id: 'a_mw89_urgent',
+    classId: 'c_mw89',
+    title: '生词抄写与课后造句（紧急截止预警）',
+    content: '全员抄写课后第四课生词3遍，挑选其中5个词语分别造句，明天前交至教师处。',
+    assignedDate: new Date(Date.now() - 24 * 3600 * 1000).toISOString().slice(0, 10),
+    dueDate: new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10),
+    maxScore: 100,
+    submissions: {}
+  },
   {
     id: 'a_mw89_1',
     classId: 'c_mw89',
@@ -791,3 +815,10 @@ export const initialAssignments: Assignment[] = [
     }
   }
 ];
+
+// 新学期尚未开课：所有作业的收缴状态全部清空初始化（布置的作业题目要求保留，提交记录全空）
+export const initialAssignments: Assignment[] = rawInitialAssignments.map(a => ({
+  ...a,
+  submissions: {}
+}));
+

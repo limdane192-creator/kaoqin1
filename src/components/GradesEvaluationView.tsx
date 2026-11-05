@@ -26,7 +26,8 @@ import {
   calculateStudentAttendance,
   calculateStudentHomework,
   getEvaluationBadgeColor,
-  computeStudentScores
+  computeStudentScores,
+  getGradeFromScore
 } from '../utils/calculations';
 import { requestAIEvaluation } from '../utils/aiEvaluation';
 import { StudentAvatarBadge } from '../utils/avatarHelper';
@@ -172,32 +173,36 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
   const excellentRate = scoredCount > 0 ? Math.round((excellentCount / scoredCount) * 100) : 0;
   const passRate = scoredCount > 0 ? Math.round((passCount / scoredCount) * 100) : 0;
 
-  // 一键将自动考勤与自动作业统计结果正式写入已保存成绩对象
+  // 一键将自动考勤与自动作业统计结果正式写入已保存成绩对象，并自动更新总分与等第
   const handleAutoFillAllAttendanceAndHw = () => {
     students.forEach(stu => {
       const attStats = calculateStudentAttendance(stu, classAttTarget);
       const hwStats = calculateStudentHomework(stu.id, classAssignments, classHwTarget);
+      const nextScores: Partial<StudentScores> = {
+        ...stu.scores,
+        attDays: attStats.presentCount,
+        attTarget: classAttTarget,
+        attWeighted: attStats.attendanceScore10,
+        hwCount: hwStats.submittedCount + hwStats.lateCount,
+        hwTarget: classHwTarget,
+        hwWeighted: hwStats.homeworkScore10
+      };
+      delete nextScores.manualTotal;
       const updated = computeStudentScores(
-        {
-          ...stu.scores,
-          attDays: attStats.presentCount,
-          attTarget: classAttTarget,
-          attWeighted: attStats.attendanceScore10,
-          hwCount: hwStats.submittedCount + hwStats.lateCount,
-          hwTarget: classHwTarget,
-          hwWeighted: hwStats.homeworkScore10
-        },
+        nextScores,
         classAttTarget,
         classHwTarget,
         attStats.attendanceScore10,
         hwStats.homeworkScore10
       );
+      updated.manualTotal = updated.calculatedSum;
       onUpdateStudentScores(stu.id, updated);
+      onUpdateStudentEvaluation(stu.id, { grade: getGradeFromScore(updated.calculatedSum) });
     });
   };
 
-  // 自动根据当前总分评定等第 (>=90优秀, >=80良好, >=60合格, <60待提高)
-  const handleAutoAssignGrades = () => {
+  // 自动根据当前各项折算分重新加总全班学期总分并自动同步等第 (考勤+作业+小测+期中+口语+期末)
+  const handleSyncAllTotalsAndGrades = () => {
     students.forEach(stu => {
       const attStats = calculateStudentAttendance(stu, classAttTarget);
       const hwStats = calculateStudentHomework(stu.id, classAssignments, classHwTarget);
@@ -208,16 +213,23 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
         attStats.attendanceScore10,
         hwStats.homeworkScore10
       );
-      const total = sc.manualTotal ?? 0;
-      let grade: StudentEvaluation['grade'] = '合格';
-      if (total >= 90) grade = '优秀';
-      else if (total >= 80) grade = '良好';
-      else if (total >= 60) grade = '合格';
-      else grade = '待提高';
+      // 考勤10% + 作业10% + 小测20% + 期中20% + 口语10% + 期末30%
+      const autoTotal = sc.calculatedSum ?? sc.manualTotal ?? 0;
+      const updatedScores = {
+        ...stu.scores,
+        manualTotal: autoTotal,
+        calculatedSum: autoTotal
+      };
+      onUpdateStudentScores(stu.id, updatedScores);
 
-      onUpdateStudentEvaluation(stu.id, { grade });
+      // 自动评定等第: >=90优秀, >=80良好, >=60合格, <60待提高
+      const autoGrade = getGradeFromScore(autoTotal);
+      onUpdateStudentEvaluation(stu.id, { grade: autoGrade });
     });
   };
+
+  // 自动根据当前总分评定等第 (>=90优秀, >=80良好, >=60合格, <60待提高)
+  const handleAutoAssignGrades = handleSyncAllTotalsAndGrades;
 
   return (
     <div className="space-y-3">
@@ -326,12 +338,12 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
             </button>
 
             <button
-              onClick={handleAutoAssignGrades}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-md transition-colors cursor-pointer"
-              title="根据当前百分比总评自动评定综合等第"
+              onClick={handleSyncAllTotalsAndGrades}
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-md transition-all cursor-pointer shadow-2xs"
+              title="根据考勤+作业+小测+期中+口语+期末自动重新加总全班学期总分并自动匹配等第"
             >
-              <Calculator className="w-3.5 h-3.5 text-slate-500" />
-              <span>自动评等第</span>
+              <Calculator className="w-3.5 h-3.5 text-emerald-600" />
+              <span>自动加总分与等第 ✨</span>
             </button>
 
             {onSaveData && (
@@ -415,14 +427,15 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
                 </th>
 
                 {/* 7. 学期总评分 100% */}
-                <th rowSpan={2} className="py-2 px-3 border-r border-slate-200 bg-slate-100/90 text-slate-900 font-bold text-center min-w-[90px]">
+                <th rowSpan={2} className="py-2 px-3 border-r border-slate-200 bg-slate-100/90 text-slate-900 font-bold text-center min-w-[95px]">
                   <div>学期总评</div>
-                  <div className="text-[10px] text-slate-500 font-normal">100% 满分</div>
+                  <div className="text-[10px] text-emerald-700 font-medium">自动加总(100%)</div>
                 </th>
 
                 {/* 等第 & 评语 */}
-                <th rowSpan={2} className="py-2 px-3 border-r border-slate-200 text-center min-w-[80px]">
-                  等第
+                <th rowSpan={2} className="py-2 px-3 border-r border-slate-200 text-center min-w-[85px]">
+                  <div>等第</div>
+                  <div className="text-[10px] text-blue-700 font-medium">自动根据总分</div>
                 </th>
                 <th rowSpan={2} className="py-2 px-4 border-r border-slate-200 text-left min-w-[320px]">
                   期末综合评定评语与标签 (支持AI一键生成)
@@ -512,24 +525,69 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
                   autoAttScore,
                   autoHwScore
                 );
-                const badgeColor = getEvaluationBadgeColor(stu.evaluation.grade);
 
-                // Helper to update student score field with immediate recompute
+                // 自动加总 = 考勤(10%) + 作业(10%) + 小测(20%) + 期中(20%) + 口语(10%) + 期末(30%)
+                const autoCalculatedTotal = sc.calculatedSum ?? 0;
+                // 有效总分：如果手动微调过则保留，否则优先采用自动加总结果
+                const effectiveTotalScore = sc.manualTotal !== undefined ? sc.manualTotal : autoCalculatedTotal;
+                // 根据总分实时自动生成的等第 (>=90优秀, >=80良好, >=60合格, <60待提高)
+                const autoGrade = getGradeFromScore(effectiveTotalScore);
+                const currentGrade = stu.evaluation.grade || autoGrade;
+                const badgeColor = getEvaluationBadgeColor(currentGrade);
+                const isAutoMatched = sc.manualTotal === undefined || sc.manualTotal === autoCalculatedTotal;
+
+                // 录入考勤、作业、小测、期中、口语、期末任意分值时，自动实时重新求和出总分，并自动生成等第
                 const handleFieldChange = (field: keyof StudentScores, rawVal: string) => {
                   const val = rawVal === '' ? undefined : Number(rawVal);
+                  const nextScores: Partial<StudentScores> = {
+                    ...stu.scores,
+                    attTarget: classAttTarget,
+                    hwTarget: classHwTarget,
+                    [field]: val
+                  };
+
+                  // 修改各分项时，清除旧 manualTotal，让系统自动根据各科折算分相加
+                  if (field !== 'manualTotal') {
+                    delete nextScores.manualTotal;
+                  }
+
                   const updated = computeStudentScores(
-                    {
-                      ...stu.scores,
-                      attTarget: classAttTarget,
-                      hwTarget: classHwTarget,
-                      [field]: val
-                    },
+                    nextScores,
                     classAttTarget,
                     classHwTarget,
                     autoAttScore,
                     autoHwScore
                   );
+
+                  // 自动加总出新总分 (考勤 + 作业 + 小测 + 期中 + 口语 + 期末)
+                  if (field !== 'manualTotal') {
+                    updated.manualTotal = updated.calculatedSum;
+                  }
+
                   onUpdateStudentScores(stu.id, updated);
+
+                  // 等第实时自动联动生成！
+                  const newTotal = updated.manualTotal ?? updated.calculatedSum ?? 0;
+                  const newAutoGrade = getGradeFromScore(newTotal);
+                  onUpdateStudentEvaluation(stu.id, { grade: newAutoGrade });
+                };
+
+                // 一键恢复并同步为自动加总求和
+                const handleResetToAutoSum = () => {
+                  const nextScores = { ...stu.scores };
+                  delete nextScores.manualTotal;
+                  const updated = computeStudentScores(
+                    nextScores,
+                    classAttTarget,
+                    classHwTarget,
+                    autoAttScore,
+                    autoHwScore
+                  );
+                  updated.manualTotal = updated.calculatedSum;
+                  onUpdateStudentScores(stu.id, updated);
+
+                  const newAutoGrade = getGradeFromScore(updated.calculatedSum);
+                  onUpdateStudentEvaluation(stu.id, { grade: newAutoGrade });
                 };
 
                 const isGeneratingThisStudent = generatingAiId === stu.id;
@@ -742,42 +800,85 @@ export const GradesEvaluationView: React.FC<GradesEvaluationViewProps> = ({
                       {sc.finalExamWeighted !== undefined ? `${sc.finalExamWeighted}%` : '-'}
                     </td>
 
-                    {/* 8. 学期总评分 (100% 满分) */}
+                    {/* 8. 学期总评分 (100% 满分) - 自动根据考勤+作业+小测+期中+口语+期末计算 */}
                     <td className="py-1.5 px-2.5 bg-slate-100/50 text-center border-r border-slate-200">
-                      <input
-                        type="number"
-                        step="any"
-                        value={sc.manualTotal ?? ''}
-                        placeholder="总分"
-                        onChange={e => {
-                          const val = e.target.value === '' ? undefined : Number(e.target.value);
-                          onUpdateStudentScores(stu.id, {
-                            ...stu.scores,
-                            manualTotal: val
-                          });
-                        }}
-                        className="w-16 text-center text-xs font-bold font-mono tabular-nums bg-white border border-slate-300 rounded px-1 py-1 text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-500"
-                        title="各分项折算实时加总，教师亦可随时手动直接录入或微调"
-                      />
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="flex items-center gap-1 justify-center">
+                          <input
+                            type="number"
+                            step="any"
+                            value={effectiveTotalScore || ''}
+                            placeholder="总分"
+                            onChange={e => {
+                              const val = e.target.value === '' ? undefined : Number(e.target.value);
+                              const updated = computeStudentScores(
+                                {
+                                  ...stu.scores,
+                                  attTarget: classAttTarget,
+                                  hwTarget: classHwTarget,
+                                  manualTotal: val
+                                },
+                                classAttTarget,
+                                classHwTarget,
+                                autoAttScore,
+                                autoHwScore
+                              );
+                              onUpdateStudentScores(stu.id, updated);
+                              if (val !== undefined) {
+                                const newGrade = getGradeFromScore(val);
+                                onUpdateStudentEvaluation(stu.id, { grade: newGrade });
+                              }
+                            }}
+                            className="w-16 text-center text-xs font-black font-mono tabular-nums bg-white border border-slate-300 rounded px-1 py-1 text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                            title={`自动加总公式：考勤(${sc.attWeighted || 0}) + 作业(${sc.hwWeighted || 0}) + 小测(${sc.quizTotal || 0}) + 期中(${sc.midtermWeighted || 0}) + 口语(${sc.oralWeighted || 0}) + 期末(${sc.finalExamWeighted || 0}) = ${autoCalculatedTotal}分`}
+                          />
+                        </div>
+
+                        {/* 自动加总状态标签 */}
+                        <div className="flex items-center justify-center gap-1">
+                          <span
+                            className="text-[9px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 py-0.2 rounded font-semibold whitespace-nowrap"
+                            title={`各分项自动加总求和: ${autoCalculatedTotal}分`}
+                          >
+                            自动加总
+                          </span>
+                          {!isAutoMatched && (
+                            <button
+                              type="button"
+                              onClick={handleResetToAutoSum}
+                              className="text-[9px] text-blue-600 hover:text-blue-800 underline cursor-pointer whitespace-nowrap"
+                              title="点击同步为实际自动加总值"
+                            >
+                              同步({autoCalculatedTotal})
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </td>
 
-                    {/* 综合等第 */}
-                    <td className="py-1.5 px-3 border-r border-slate-200 text-center">
-                      <select
-                        value={stu.evaluation.grade}
-                        onChange={e =>
-                          onUpdateStudentEvaluation(stu.id, {
-                            grade: e.target.value as StudentEvaluation['grade']
-                          })
-                        }
-                        className={`text-xs px-2 py-0.5 rounded font-medium border cursor-pointer ${badgeColor.bg} ${badgeColor.text} ${badgeColor.border}`}
-                      >
-                        <option value="">未评定</option>
-                        <option value="优秀">优秀 (A)</option>
-                        <option value="良好">良好 (B)</option>
-                        <option value="合格">合格 (C)</option>
-                        <option value="待提高">待提高 (D)</option>
-                      </select>
+                    {/* 综合等第 - 自动根据总分生成 (>=90优秀, >=80良好, >=60合格, <60待提高) */}
+                    <td className="py-1.5 px-2.5 border-r border-slate-200 text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        <select
+                          value={currentGrade}
+                          onChange={e =>
+                            onUpdateStudentEvaluation(stu.id, {
+                              grade: e.target.value as StudentEvaluation['grade']
+                            })
+                          }
+                          className={`text-xs px-2 py-1 rounded font-bold border cursor-pointer transition-colors ${badgeColor.bg} ${badgeColor.text} ${badgeColor.border}`}
+                          title={`总分 ${effectiveTotalScore} 分 -> 自动生成等第: ${autoGrade} (亦可手动自定)`}
+                        >
+                          <option value="">未评定</option>
+                          <option value="优秀">优秀 (A)</option>
+                          <option value="良好">良好 (B)</option>
+                          <option value="合格">合格 (C)</option>
+                          <option value="待提高">待提高 (D)</option>
+                        </select>
+                        <span className="text-[9px] text-slate-400 scale-90 font-mono whitespace-nowrap">
+                          {effectiveTotalScore >= 90 ? '≥90 优秀' : effectiveTotalScore >= 80 ? '80-89 良好' : effectiveTotalScore >= 60 ? '60-79 合格' : '<60 待提高'}
+                        </span>
+                      </div>
                     </td>
 
                     {/* 期末评语与标签 (支持AI生成) */}

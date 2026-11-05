@@ -59,6 +59,7 @@ export interface StudentScores {
 
   // 7. 学期综合总评分 (满分100%, 自动累加上述各分项折算分，支持教师直接修改)
   manualTotal?: number;
+  calculatedSum?: number; // 考勤+作业+小测+期中+口语+期末自动加总得分
 
   daily?: number;
   homework?: number;

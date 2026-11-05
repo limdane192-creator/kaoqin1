@@ -10,8 +10,8 @@ const STORAGE_KEYS = {
   SEMESTERS: 'tea_semesters_v6',
   SELECTED_SEMESTER: 'tea_selected_semester_v6',
   CLASSES: 'tea_classes_v6',
-  STUDENTS: 'tea_students_v6',
-  ASSIGNMENTS: 'tea_assignments_v6',
+  STUDENTS: 'tea_students_v8',
+  ASSIGNMENTS: 'tea_assignments_v8',
   SELECTED_CLASS: 'tea_selected_class_v6',
   JOURNAL: 'tea_journal_v2'
 };

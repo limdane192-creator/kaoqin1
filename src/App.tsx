@@ -14,7 +14,8 @@ import {
   FileUp,
   Copy,
   AlertTriangle,
-  AlertCircle
+  AlertCircle,
+  PanelLeftOpen
 } from 'lucide-react';
 import { exportStandardStyledExcel } from './utils/excelExport';
 import {
@@ -49,6 +50,7 @@ import {
   TeacherJournalEntry
 } from './types';
 import { parseWeekdaysFromSchedule, calculateNextSessionDate } from './utils/scheduleHelper';
+import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ClassSelector } from './components/ClassSelector';
 import { DailyRollCallView } from './components/DailyRollCallView';
@@ -68,6 +70,7 @@ import { TransferStudentModal } from './components/TransferStudentModal';
 import { BackupModal } from './components/BackupModal';
 import { AvatarPickerModal } from './components/AvatarPickerModal';
 import { GraduationCertificateModal } from './components/GraduationCertificateModal';
+import { NewSemesterResetModal } from './components/NewSemesterResetModal';
 
 export default function App() {
   const [semesters, setSemesters] = useState<Semester[]>(loadSemesters);
@@ -79,6 +82,26 @@ export default function App() {
   const [selectedClassId, setSelectedClassId] = useState<string>(loadSelectedClassId);
   const [currentTab, setCurrentTab] = useState<'rollcall' | 'attendance' | 'homework' | 'grades' | 'journal' | 'overview'>('rollcall');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleSidebarCollapse = () => {
+    setIsSidebarCollapsed(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('sidebar_collapsed', String(next));
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+  };
 
   // Save feedback state
   const [lastSavedTime, setLastSavedTime] = useState<Date | null>(new Date());
@@ -128,6 +151,50 @@ export default function App() {
   const [isNewAssignmentModalOpen, setIsNewAssignmentModalOpen] = useState(false);
   const [isBatchImportModalOpen, setIsBatchImportModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isSemesterResetModalOpen, setIsSemesterResetModalOpen] = useState(false);
+
+  // 尚未开学状态初始化：确保考勤打卡与作业记录全部清空（花名册及班级完整保留）
+  useEffect(() => {
+    const isCleanedKey = 'tea_cleaned_for_pre_semester_v8';
+    if (!localStorage.getItem(isCleanedKey)) {
+      setStudents(prev =>
+        prev.map(s => ({
+          ...s,
+          attendance: {},
+          attendanceNotes: {},
+          scores: {},
+          evaluation: {
+            grade: '',
+            remarks: '',
+            tags: [],
+            behaviorNotes: []
+          }
+        }))
+      );
+      setAssignments(prev => {
+        const cleaned = prev.map(a => ({
+          ...a,
+          submissions: {}
+        }));
+        const hasUrgent = cleaned.some(a => a.id === 'a_mw89_urgent');
+        if (hasUrgent) return cleaned;
+        const tomorrow = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
+        const yesterday = new Date(Date.now() - 24 * 3600 * 1000).toISOString().slice(0, 10);
+        const urgentAssignment: Assignment = {
+          id: 'a_mw89_urgent',
+          classId: 'c_mw89',
+          title: '生词抄写与课后造句（48小时截止预警）',
+          content: '全员抄写课后第四课生词3遍，挑选其中5个词语分别造句，明天前交至教师处。',
+          assignedDate: yesterday,
+          dueDate: tomorrow,
+          maxScore: 100,
+          submissions: {}
+        };
+        return [urgentAssignment, ...cleaned];
+      });
+      localStorage.setItem(isCleanedKey, 'true');
+    }
+  }, []);
 
   // Sync state to LocalStorage
   useEffect(() => {
@@ -869,6 +936,153 @@ export default function App() {
     setSelectedClassId(reset.classes[0]?.id || 'c_mw89');
   };
 
+  // 14.1 新学期清空选项：仅清空考勤与作业记录（保留花名册与班级）
+  const handleClearAttendanceAndHomework = (scope: 'currentClass' | 'currentSemester' | 'all') => {
+    const targetClassIds = new Set<string>();
+    if (scope === 'currentClass') {
+      targetClassIds.add(currentClass.id);
+    } else if (scope === 'currentSemester') {
+      classes.filter(c => c.semesterId === selectedSemesterId).forEach(c => targetClassIds.add(c.id));
+    } else {
+      classes.forEach(c => targetClassIds.add(c.id));
+    }
+
+    // 重置学生的考勤、综合得分与评定
+    setStudents(prev =>
+      prev.map(s => {
+        if (!targetClassIds.has(s.classId)) return s;
+        return {
+          ...s,
+          attendance: {},
+          attendanceNotes: {},
+          scores: {},
+          evaluation: {
+            grade: '',
+            remarks: '',
+            tags: [],
+            behaviorNotes: []
+          }
+        };
+      })
+    );
+
+    // 清空对应班级作业的已提交记录
+    setAssignments(prev =>
+      prev.map(a => {
+        if (!targetClassIds.has(a.classId)) return a;
+        return {
+          ...a,
+          submissions: {}
+        };
+      })
+    );
+
+    const scopeDesc =
+      scope === 'currentClass'
+        ? `班级【${currentClass.name}】`
+        : scope === 'currentSemester'
+        ? `【${semesters.find(s => s.id === selectedSemesterId)?.name || '当前学期'}】全部班级`
+        : '全部教学班级';
+
+    setSaveToast({
+      show: true,
+      title: '新学期记录已整洁清空！🧹',
+      desc: `已成功清空${scopeDesc}的30课时考勤打卡与作业提交状态，学生花名册与班级设置已完整保留。从第1课时干净开始！`
+    });
+    setTimeout(() => setSaveToast(null), 4000);
+  };
+
+  // 14.2 清空当前班级全部在册学生
+  const handleClearStudentsInCurrentClass = () => {
+    setStudents(prev => prev.filter(s => s.classId !== currentClass.id));
+    setAssignments(prev =>
+      prev.map(a => (a.classId === currentClass.id ? { ...a, submissions: {} } : a))
+    );
+    setSaveToast({
+      show: true,
+      title: '班级学生名单已清空',
+      desc: `班级【${currentClass.name}】的排课信息已保留，现有名单已清空，可随时录入或批量粘贴新学期花名册。`
+    });
+    setTimeout(() => setSaveToast(null), 3500);
+  };
+
+  // 14.3 清空当前学期所有班级与学生
+  const handleClearCurrentSemesterAllData = () => {
+    const sem = semesters.find(s => s.id === selectedSemesterId);
+    const semName = sem?.name || '新学期';
+    const freshClassId = `c_${Date.now()}`;
+    const freshClass: ClassRoom = {
+      id: freshClassId,
+      name: '新学期1班',
+      code: 'CH-101',
+      schedule: '周一/周三 08:00 - 09:30',
+      classScheduleType: 'mw_30',
+      room: '201',
+      semesterId: selectedSemesterId,
+      semester: semName,
+      totalSessions: 30,
+      totalHwTarget: 20,
+      sessionDates: {}
+    };
+
+    const remainingClasses = classes.filter(c => c.semesterId !== selectedSemesterId);
+    setClasses([freshClass, ...remainingClasses]);
+    setSelectedClassId(freshClassId);
+
+    setStudents(prev =>
+      prev.filter(s => !classes.some(c => c.semesterId === selectedSemesterId && c.id === s.classId))
+    );
+    setAssignments(prev =>
+      prev.filter(a => !classes.some(c => c.semesterId === selectedSemesterId && c.id === a.classId))
+    );
+
+    setSaveToast({
+      show: true,
+      title: '学期数据已清空重置 ✨',
+      desc: `【${semName}】已清空旧数据，并已自动创建干净的【新学期1班】，随时准备开学！`
+    });
+    setTimeout(() => setSaveToast(null), 4000);
+  };
+
+  // 14.4 彻底清空所有历史数据为初始空白学期
+  const handleFullResetToBlankSemester = () => {
+    const freshSemId = `sem_${Date.now()}`;
+    const freshSem: Semester = {
+      id: freshSemId,
+      name: '2026新学期',
+      createdAt: Date.now()
+    };
+    const freshClassId = `c_${Date.now()}`;
+    const freshClass: ClassRoom = {
+      id: freshClassId,
+      name: '新学期1班',
+      code: 'CH-101',
+      schedule: '周一/周三 08:00 - 09:30',
+      classScheduleType: 'mw_30',
+      room: '201',
+      semesterId: freshSemId,
+      semester: '2026新学期',
+      totalSessions: 30,
+      totalHwTarget: 20,
+      sessionDates: {}
+    };
+
+    setSemesters([freshSem]);
+    setSelectedSemesterId(freshSemId);
+    setClasses([freshClass]);
+    setSelectedClassId(freshClassId);
+    setStudents([]);
+    setAssignments([]);
+    setJournalEntries([]);
+
+    setSaveToast({
+      show: true,
+      title: '已重置为初始新学期 🌸',
+      desc: '系统已彻底清空旧测试数据，已为您准备好【2026新学期 · 新学期1班】空白台账！'
+    });
+    setTimeout(() => setSaveToast(null), 4000);
+  };
+
   // 15. 恢复备份
   const handleRestore = (
     restoredClasses: ClassRoom[],
@@ -1068,26 +1282,64 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAF7F2] flex flex-col font-sans text-slate-800">
-      {/* Top Header */}
-      <Header
+    <div className="min-h-screen bg-[#FAF7F2] flex font-sans text-slate-800 relative">
+      {/* Floating Left Edge Expand Button (当导航栏缩到看不见时展示，一键还原) */}
+      {isSidebarCollapsed && (
+        <button
+          type="button"
+          onClick={handleToggleSidebarCollapse}
+          className="hidden md:flex fixed left-0 top-24 z-40 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-amber-950 font-black px-2 py-3.5 rounded-r-2xl shadow-xl border-y border-r border-amber-300 flex-col items-center gap-1.5 cursor-pointer transition-all hover:pl-3 group animate-in slide-in-from-left duration-200"
+          title="点击展开左侧功能导航栏 🐾 (快捷还原，不挡右侧内容)"
+        >
+          <PanelLeftOpen className="w-4 h-4 text-amber-950 group-hover:scale-110 transition-transform" />
+          <span className="text-[11px] font-black tracking-widest [writing-mode:vertical-lr] text-center">
+            展开导航
+          </span>
+          <span className="text-xs group-hover:translate-x-0.5 transition-transform">🐾</span>
+        </button>
+      )}
+
+      {/* Left Sidebar Navigation (把这上面的浏览换到左边，并支持缩到看不见) */}
+      <Sidebar
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
         classes={classes}
         currentClass={currentClass}
         students={students}
         assignments={assignments}
+        isOpenMobile={isMobileSidebarOpen}
+        onCloseMobile={() => setIsMobileSidebarOpen(false)}
         onOpenNewClass={() => setIsNewClassModalOpen(true)}
-        onOpenNewAssignment={() => setIsNewAssignmentModalOpen(true)}
-        onResetData={handleResetData}
         onOpenBackup={() => setIsBackupModalOpen(true)}
-        onSaveData={handleManualSave}
-        lastSavedTime={lastSavedTime}
-        isJustSaved={isJustSaved}
-        onExportStandardExcel={handleExportStandardExcel}
-        onExportJSONBackup={handleExportJSONBackup}
-        onImportJSONBackup={handleTriggerImportJSON}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={handleToggleSidebarCollapse}
       />
+
+      {/* Right Main Content Area */}
+      <div className="flex-1 min-w-0 flex flex-col min-h-screen overflow-x-hidden transition-all duration-300">
+        {/* Top Header */}
+        <Header
+          currentTab={currentTab}
+          setCurrentTab={setCurrentTab}
+          classes={classes}
+          currentClass={currentClass}
+          students={students}
+          assignments={assignments}
+          onOpenNewClass={() => setIsNewClassModalOpen(true)}
+          onOpenNewAssignment={() => setIsNewAssignmentModalOpen(true)}
+          onResetData={handleResetData}
+          onOpenBackup={() => setIsBackupModalOpen(true)}
+          onSaveData={handleManualSave}
+          lastSavedTime={lastSavedTime}
+          isJustSaved={isJustSaved}
+          onExportStandardExcel={handleExportStandardExcel}
+          onExportJSONBackup={handleExportJSONBackup}
+          onImportJSONBackup={handleTriggerImportJSON}
+          onOpenSemesterReset={() => setIsSemesterResetModalOpen(true)}
+          onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onToggleCollapseSidebar={handleToggleSidebarCollapse}
+        />
 
       {/* Class Selector Bar with Semester Switcher */}
       {currentTab !== 'overview' && currentTab !== 'journal' && (
@@ -1103,6 +1355,7 @@ export default function App() {
           onSelectClass={id => setSelectedClassId(id)}
           onOpenNewClass={() => setIsNewClassModalOpen(true)}
           onOpenEditClass={() => setIsEditClassModalOpen(true)}
+          onOpenSemesterReset={() => setIsSemesterResetModalOpen(true)}
           students={students}
           assignments={assignments}
           searchQuery={searchQuery}
@@ -1157,11 +1410,14 @@ export default function App() {
             currentClass={currentClass}
             students={currentClassStudents}
             assignments={assignments}
+            allClasses={classes}
+            allStudents={students}
             onOpenNewAssignment={() => setIsNewAssignmentModalOpen(true)}
             onUpdateSubmission={handleUpdateSubmission}
             onBatchSubmitToday={handleBatchSubmitToday}
             onSelectStudentModal={stu => setSelectedStudentForModal(stu)}
             onDeleteAssignment={handleDeleteAssignment}
+            onSelectClass={id => setSelectedClassId(id)}
           />
         )}
 
@@ -1211,9 +1467,19 @@ export default function App() {
               setCurrentTab('rollcall');
             }}
             onOpenNewClass={() => setIsNewClassModalOpen(true)}
+            onNavigateToHomework={(classId, assignmentId) => {
+              setSelectedClassId(classId);
+              const targetCls = classes.find(c => c.id === classId);
+              if (targetCls?.semesterId) {
+                setSelectedSemesterId(targetCls.semesterId);
+              }
+              setCurrentTab('homework');
+            }}
+            onOpenNewAssignment={() => setIsNewAssignmentModalOpen(true)}
           />
         )}
       </main>
+      </div>
 
       {/* Student Detail Modal */}
       <StudentDetailModal
@@ -1309,6 +1575,23 @@ export default function App() {
         semesters={semesters}
         onRestore={handleRestore}
         onReset={handleResetData}
+      />
+
+      {/* New Semester Reset & Preparation Modal */}
+      <NewSemesterResetModal
+        isOpen={isSemesterResetModalOpen}
+        onClose={() => setIsSemesterResetModalOpen(false)}
+        currentSemester={semesters.find(s => s.id === selectedSemesterId) || semesters[0]}
+        currentClass={currentClass}
+        allSemesters={semesters}
+        classes={classes}
+        students={students}
+        assignments={assignments}
+        onClearAttendanceAndHomework={handleClearAttendanceAndHomework}
+        onClearStudentsInCurrentClass={handleClearStudentsInCurrentClass}
+        onClearCurrentSemesterAllData={handleClearCurrentSemesterAllData}
+        onFullResetToBlankSemester={handleFullResetToBlankSemester}
+        onExportBackup={handleExportJSONBackup}
       />
 
       {/* Avatar Picker Modal (卡通预设或自定义真实照片上传) */}

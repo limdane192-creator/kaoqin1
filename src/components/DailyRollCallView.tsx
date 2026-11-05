@@ -31,6 +31,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { CuteAttendanceCat } from './CuteIllustrations';
+import { CuteCalendarPicker, CuteDatePickerInput } from './CuteCalendarPicker';
 import { ClassRoom, Student, AttendanceStatus, SessionMode } from '../types';
 import { compareStudentNamesAZ } from '../utils/calculations';
 import { getWeekdayName } from '../utils/scheduleHelper';
@@ -204,6 +205,7 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
   // 课时日期同步与即时编辑状态
   const [sessionDateInput, setSessionDateInput] = useState<string>('');
   const [isEditingSessionDate, setIsEditingSessionDate] = useState<boolean>(false);
+  const [isDateCalendarOpen, setIsDateCalendarOpen] = useState<boolean>(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -361,25 +363,47 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
                 })}
               </select>
 
-              {/* Date Badge / Modifier */}
-              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-1 text-[11px]">
-                <CalendarDays className="w-3 h-3 text-slate-500" />
-                <span className="font-mono font-medium text-slate-700">
-                  {sessionDateText || '日期未定'}
-                </span>
-                {sessionWeekday && (
-                  <span className="text-[10px] text-blue-600 font-semibold bg-blue-50 px-1 rounded">
-                    {sessionWeekday}
-                  </span>
-                )}
+              {/* Interactive Calendar Date Picker Popover */}
+              <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setIsEditingSessionDate(!isEditingSessionDate)}
-                  className="text-slate-400 hover:text-blue-600 p-0.5 cursor-pointer ml-0.5"
-                  title="手动修改此课时公历日期 (遇假期或补课时微调)"
+                  onClick={() => setIsDateCalendarOpen(!isDateCalendarOpen)}
+                  className={`flex items-center gap-1.5 bg-white border rounded px-2.5 py-1 text-[11px] cursor-pointer transition-all shadow-2xs hover:bg-blue-50/50 ${
+                    isDateCalendarOpen
+                      ? 'border-blue-500 ring-2 ring-blue-500/20'
+                      : 'border-slate-300 hover:border-blue-400'
+                  }`}
+                  title="点击打开日历选表设置日期，避免手动输入出错"
                 >
-                  <Edit3 className="w-3 h-3" />
+                  <CalendarDays className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span className="font-mono font-bold text-slate-800">
+                    {sessionDateText || '点击选日期'}
+                  </span>
+                  {sessionWeekday && (
+                    <span className="text-[10px] text-blue-700 font-semibold bg-blue-50 border border-blue-200 px-1 py-0.2 rounded">
+                      {sessionWeekday}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-slate-400 ml-0.5">▾</span>
                 </button>
+
+                {isDateCalendarOpen && (
+                  <div className="absolute left-0 mt-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+                    <CuteCalendarPicker
+                      value={sessionDateText}
+                      onChange={(newDate) => {
+                        if (onUpdateSessionConfig) {
+                          onUpdateSessionConfig(selectedDay, newDate, sessionMode);
+                          setSyncNotice(`第 ${selectedDay} 课排期日期已更新为【${newDate || '未设'}】！`);
+                          setTimeout(() => setSyncNotice(null), 3000);
+                        }
+                        setIsDateCalendarOpen(false);
+                      }}
+                      onClose={() => setIsDateCalendarOpen(false)}
+                      showFormatToggle
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Quick Set to Today button if different */}
