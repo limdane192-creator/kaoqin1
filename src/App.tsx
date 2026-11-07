@@ -48,7 +48,8 @@ import {
   StudentEvaluation,
   BehaviorNote,
   TeacherJournalEntry,
-  SessionMilestone
+  SessionMilestone,
+  WeekCycleConfig
 } from './types';
 import {
   parseWeekdaysFromSchedule,
@@ -893,6 +894,25 @@ export default function App() {
     );
   };
 
+  // 11.4 自定义更新周次周期划分 (支持1天/2天/3天/5天自由定制，满足图2需求)
+  const handleUpdateClassWeekCycles = (classId: string, customWeekCycles: WeekCycleConfig[]) => {
+    setClasses(prev =>
+      prev.map(c => {
+        if (c.id !== classId) return c;
+        return {
+          ...c,
+          customWeekCycles
+        };
+      })
+    );
+    setSaveToast({
+      show: true,
+      title: '周次周期已更新！',
+      desc: `已为班级【${classes.find(c => c.id === classId)?.name || ''}】自定义排期周期，考勤表头周次分组已实时调整并自动保存。`
+    });
+    setTimeout(() => setSaveToast(null), 3500);
+  };
+
   // 11.5 手动添加或删除课时 (支持多上了添加课时、少上了删除课时，考勤扣分规则完全不变)
   const handleAddSession = (classId?: string) => {
     const targetClassId = classId || currentClass.id;
@@ -1536,6 +1556,7 @@ export default function App() {
             allClasses={classes}
             onSyncCohortSchedules={handleSyncCohortSchedules}
             onUpdateTeachingProgress={handleUpdateTeachingProgress}
+            onUpdateClassWeekCycles={handleUpdateClassWeekCycles}
           />
         )}
 

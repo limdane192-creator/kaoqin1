@@ -34,11 +34,13 @@ import {
   Copy,
   ListOrdered,
   CheckCircle2,
-  FileText
+  FileText,
+  CalendarRange
 } from 'lucide-react';
-import { ClassRoom, Student, AttendanceStatus, SessionMode, SessionMilestone, SessionMilestoneType } from '../types';
+import { ClassRoom, Student, AttendanceStatus, SessionMode, SessionMilestone, SessionMilestoneType, WeekCycleConfig } from '../types';
 import { calculateStudentAttendance } from '../utils/calculations';
 import { CuteCalendarPicker, CuteDatePickerInput } from './CuteCalendarPicker';
+import { CustomWeekCycleModal } from './CustomWeekCycleModal';
 import {
   parseWeekdaysFromSchedule,
   parseFlexibleDate,
@@ -52,7 +54,7 @@ import {
   getDefaultMilestonesForSessions,
   ScheduleCohortType
 } from '../utils/scheduleHelper';
-import { getSmartSessionsPerWeek, getWeekNumberForSession, buildWeekCycles, WeekCycle } from '../utils/cycleHelper';
+import { getSmartSessionsPerWeek, getWeekNumberForSession, getWeekNumberForSessionWithCycles, buildWeekCycles, WeekCycle } from '../utils/cycleHelper';
 
 interface AttendanceViewProps {
   currentClass: ClassRoom;
@@ -66,6 +68,7 @@ interface AttendanceViewProps {
   onOpenTransferStudent?: (student: Student) => void;
   onOpenEditStudent?: (student: Student) => void;
   onSwitchToRollCall?: () => void;
+  onUpdateClassWeekCycles?: (classId: string, cycles: WeekCycleConfig[]) => void;
   onUpdateSessionConfig: (
     day: number,
     date: string,
@@ -117,11 +120,13 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   onSortClassStudentsAZ,
   allClasses,
   onSyncCohortSchedules,
-  onUpdateTeachingProgress
+  onUpdateTeachingProgress,
+  onUpdateClassWeekCycles
 }) => {
   const [selectedDayForBatch, setSelectedDayForBatch] = useState<number>(1);
   const [filterWarningOnly, setFilterWarningOnly] = useState<boolean>(false);
   const [editingNote, setEditingNote] = useState<{ studentId: string; day: number; note: string; studentName: string } | null>(null);
+  const [isCustomCycleModalOpen, setIsCustomCycleModalOpen] = useState(false);
 
   // Cell Edit Confirmation State (浏览模式下防止误触，需明确选择状态并点击确定改动)
   const [confirmingCell, setConfirmingCell] = useState<{
@@ -465,7 +470,12 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     c => c.id !== currentClass.id && getScheduleCohort(c.schedule, c.name) === currentCohort && currentCohort !== 'other'
   );
   const sessionsPerWeek = getSmartSessionsPerWeek(currentClass.schedule, totalSessions);
-  const weekCycles = buildWeekCycles(totalSessions, sessionsPerWeek, currentClass.sessionDates);
+  const weekCycles = buildWeekCycles(
+    totalSessions,
+    sessionsPerWeek,
+    currentClass.sessionDates,
+    currentClass.customWeekCycles
+  );
 
   return (
     <div className="space-y-3">
@@ -505,6 +515,22 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 <span>去今日课堂点名</span>
               </button>
             )}
+
+            {/* 手动调整周次周期按钮 (满足图2需求：一周只上两天或一天，不一定全都三天，有的上五天) */}
+            <button
+              type="button"
+              onClick={() => setIsCustomCycleModalOpen(true)}
+              className="px-2.5 py-1 text-xs font-bold text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-md transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap shadow-2xs"
+              title="自由手动调整周次周期（支持每周1天/2天/3天/5天灵活定制，如遇假期或特殊排课）"
+            >
+              <CalendarRange className="w-3.5 h-3.5 text-amber-700" />
+              <span>调整周次周期 (图2)</span>
+              {currentClass.customWeekCycles && currentClass.customWeekCycles.length > 0 && (
+                <span className="text-[10px] bg-amber-400 text-amber-950 px-1 rounded-full font-mono font-black">
+                  已自定义
+                </span>
+              )}
+            </button>
 
             {/* Quick schedule manager button */}
             <button
@@ -876,18 +902,20 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                   学生姓名
                 </th>
 
-                {/* 教学周周期合并分组表头 */}
+                {/* 教学周周期合并分组表头 (图2：支持点击自由调整每周包含1天、2天、3天、5天) */}
                 {weekCycles.map((cycle) => {
                   const isEven = cycle.weekNumber % 2 === 0;
                   return (
                     <th
                       key={cycle.weekNumber}
                       colSpan={cycle.sessionDays.length}
-                      className={`py-1.5 px-1 text-center border-r-2 border-slate-300 font-bold text-xs select-none ${
+                      onClick={() => setIsCustomCycleModalOpen(true)}
+                      className={`py-1.5 px-1 text-center border-r-2 border-slate-300 font-bold text-xs select-none cursor-pointer hover:brightness-95 transition-all group ${
                         isEven
-                          ? 'bg-amber-100/80 text-amber-950'
-                          : 'bg-orange-100/80 text-orange-950'
+                          ? 'bg-amber-100/90 text-amber-950'
+                          : 'bg-orange-100/90 text-orange-950'
                       }`}
+                      title="点击调整周次周期（可自由设置本周包含1天、2天、3天、5天等）"
                     >
                       <div className="flex items-center justify-center gap-1.5 py-0.5">
                         <span className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center shadow-2xs ${
@@ -896,11 +924,15 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                           {cycle.weekNumber}
                         </span>
                         <span className="font-bold tracking-tight">第 {cycle.weekNumber} 周</span>
+                        <span className="text-[10px] font-mono bg-white/70 px-1 py-0.2 rounded font-bold text-amber-900">
+                          {cycle.sessionDays.length}天
+                        </span>
                         {cycle.dateRangeText && (
-                          <span className="text-[10px] font-mono font-medium opacity-75">
+                          <span className="text-[10px] font-mono font-medium opacity-80">
                             ({cycle.dateRangeText})
                           </span>
                         )}
+                        <span className="text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
                       </div>
                     </th>
                   );
@@ -931,7 +963,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 <th rowSpan={2} className="py-2 px-3 text-center text-slate-500 font-normal">备注理由</th>
               </tr>
 
-              {/* Row 2: 课时序号、放大日期、星期、形式及【红色重要日子标注在下面】 */}
+              {/* Row 2: 周期W、课时序号、放大日期、星期、形式及【红色重要日子标注在下面】 */}
               <tr className="bg-slate-50">
                 {Array.from({ length: totalSessions }, (_, i) => i + 1).map(day => {
                   const dateStr = currentClass.sessionDates?.[day] || '';
@@ -939,7 +971,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                   const isOnline = mode === 'online';
                   const parsedDate = parseFlexibleDate(dateStr);
                   const weekdayLabel = parsedDate ? getWeekdayName(parsedDate) : '';
-                  const weekNum = getWeekNumberForSession(day, sessionsPerWeek);
+                  const weekNum = getWeekNumberForSessionWithCycles(day, weekCycles);
                   const isEndOfWeek = weekCycles.some(c => c.endDay === day);
                   const milestone = currentClass.sessionMilestones?.[day];
                   const milestoneLabel = getSessionMilestoneLabel(milestone);
@@ -959,6 +991,11 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                       }`}
                       title={`第${day}课 (第${weekNum}周) · ${dateStr ? `${dateStr} (${weekdayLabel || '点击编辑'})` : '点击输入日期'}${milestoneLabel ? ` · 重要节点: ${milestoneLabel}` : ''} · ${isOnline ? '线上上课' : '线下上课'} (点击可编辑日期、形式及大考节点)`}
                     >
+                      {/* 周次标识 W1, W2 等 (精确对齐图1和图2) */}
+                      <div className="text-[10px] font-black font-mono text-blue-600 opacity-90 leading-none mb-0.5">
+                        W{weekNum}
+                      </div>
+
                       {/* 课时序号 */}
                       <div className="text-[10px] font-bold text-slate-400 font-mono leading-none">
                         第{day}课
@@ -2559,6 +2596,18 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* 自定义教学周次周期划分弹窗 (图2：自由设置1天/2天/3天/5天) */}
+      <CustomWeekCycleModal
+        isOpen={isCustomCycleModalOpen}
+        onClose={() => setIsCustomCycleModalOpen(false)}
+        currentClass={currentClass}
+        onSaveCustomWeekCycles={(classId, cycles) => {
+          if (onUpdateClassWeekCycles) {
+            onUpdateClassWeekCycles(classId, cycles);
+          }
+        }}
+      />
     </div>
   );
 };

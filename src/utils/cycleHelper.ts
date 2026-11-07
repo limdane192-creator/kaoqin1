@@ -80,13 +80,96 @@ export function getSmartSessionsPerWeek(scheduleStr = '', totalSessions = 30): n
 }
 
 /**
- * 构建全班的所有周次周期列表 (默认排到 10 周，如有超额课时则顺延增加周次)
+ * 构建全班的所有周次周期列表 (支持用户手动自定义调整，如一周1天、2天、3天、5天任意组合)
  */
 export function buildWeekCycles(
   totalSessions: number,
   sessionsPerWeek: number,
-  sessionDates: Record<number, string> = {}
+  sessionDates: Record<number, string> = {},
+  customWeekCycles?: { weekNumber: number; startDay: number; endDay: number; sessionDays?: number[]; label?: string }[]
 ): WeekCycle[] {
+  // 如果用户手动配置了自定义周次周期，优先严格按用户的自定义配置构建
+  if (customWeekCycles && customWeekCycles.length > 0) {
+    const cycles: WeekCycle[] = [];
+    let maxCoveredDay = 0;
+
+    customWeekCycles.forEach((cfg, idx) => {
+      const weekNumber = cfg.weekNumber || idx + 1;
+      let sessionDays: number[] = [];
+
+      if (cfg.sessionDays && cfg.sessionDays.length > 0) {
+        sessionDays = [...cfg.sessionDays].sort((a, b) => a - b);
+      } else {
+        const s = Math.max(1, cfg.startDay);
+        const e = Math.min(totalSessions, cfg.endDay);
+        for (let d = s; d <= e; d++) {
+          sessionDays.push(d);
+        }
+      }
+
+      if (sessionDays.length > 0) {
+        const startDay = sessionDays[0];
+        const endDay = sessionDays[sessionDays.length - 1];
+        maxCoveredDay = Math.max(maxCoveredDay, endDay);
+
+        const firstDate = sessionDates[startDay] || '';
+        const lastDate = sessionDates[endDay] || '';
+        let dateRangeText = '待排期';
+        if (firstDate && lastDate) {
+          dateRangeText = firstDate === lastDate ? firstDate : `${firstDate} ~ ${lastDate}`;
+        } else if (firstDate) {
+          dateRangeText = `自 ${firstDate}`;
+        }
+
+        cycles.push({
+          weekNumber,
+          startDay,
+          endDay,
+          sessionDays,
+          dateRangeText
+        });
+      }
+    });
+
+    // 如果自定义配置尚未覆盖全部课时，自动顺延补充剩余课时
+    if (maxCoveredDay < totalSessions) {
+      let nextStart = maxCoveredDay + 1;
+      let nextWeekNum = cycles.length + 1;
+      const safePerWeek = Math.max(1, sessionsPerWeek || 3);
+
+      while (nextStart <= totalSessions) {
+        const nextEnd = Math.min(totalSessions, nextStart + safePerWeek - 1);
+        const remainingDays: number[] = [];
+        for (let d = nextStart; d <= nextEnd; d++) {
+          remainingDays.push(d);
+        }
+
+        const firstDate = sessionDates[nextStart] || '';
+        const lastDate = sessionDates[nextEnd] || '';
+        let dateRangeText = '待排期';
+        if (firstDate && lastDate) {
+          dateRangeText = firstDate === lastDate ? firstDate : `${firstDate} ~ ${lastDate}`;
+        } else if (firstDate) {
+          dateRangeText = `自 ${firstDate}`;
+        }
+
+        cycles.push({
+          weekNumber: nextWeekNum,
+          startDay: nextStart,
+          endDay: nextEnd,
+          sessionDays: remainingDays,
+          dateRangeText
+        });
+
+        nextStart = nextEnd + 1;
+        nextWeekNum++;
+      }
+    }
+
+    return cycles;
+  }
+
+  // 默认推算逻辑
   const cycles: WeekCycle[] = [];
   const safeSessionsPerWeek = Math.max(1, sessionsPerWeek);
   const totalWeeks = Math.max(10, Math.ceil(totalSessions / safeSessionsPerWeek));
@@ -96,7 +179,6 @@ export function buildWeekCycles(
     const endDay = Math.min(w * safeSessionsPerWeek, totalSessions);
 
     if (startDay > totalSessions) {
-      // 达到10周但无更多课时，保留前10周空槽位或按需截止
       if (w > 10) break;
       cycles.push({
         weekNumber: w,
@@ -133,6 +215,16 @@ export function buildWeekCycles(
   }
 
   return cycles;
+}
+
+/**
+ * 根据指定课时获取其所属的周次编号 (支持自定义周期)
+ */
+export function getWeekNumberForSessionWithCycles(day: number, cycles: WeekCycle[]): number {
+  if (day <= 0) return 1;
+  const found = cycles.find(c => c.sessionDays.includes(day));
+  if (found) return found.weekNumber;
+  return Math.ceil(day / 3);
 }
 
 /**

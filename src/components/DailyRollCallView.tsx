@@ -29,7 +29,8 @@ import {
   AlertTriangle,
   Filter,
   ChevronRight,
-  BookOpen
+  BookOpen,
+  MapPin
 } from 'lucide-react';
 import { CuteAttendanceCat } from './CuteIllustrations';
 import { CuteCalendarPicker, CuteDatePickerInput } from './CuteCalendarPicker';
@@ -41,6 +42,7 @@ import {
   getSmartSessionsPerWeek,
   buildWeekCycles,
   getWeekNumberForSession,
+  getWeekNumberForSessionWithCycles,
   calculateStudentWeeklyStats,
   calculateClassWeeklySummary,
   WeekCycle
@@ -91,10 +93,15 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
     setSessionsPerWeek(getSmartSessionsPerWeek(currentClass.schedule, totalSessions));
   }, [currentClass.id, currentClass.schedule, totalSessions]);
 
-  // 构建 1~10 周智能周期列表
+  // 构建 1~10 周周期列表 (支持自定义每周天数)
   const weekCycles = useMemo(() => {
-    return buildWeekCycles(totalSessions, sessionsPerWeek, currentClass.sessionDates || {});
-  }, [totalSessions, sessionsPerWeek, currentClass.sessionDates]);
+    return buildWeekCycles(
+      totalSessions,
+      sessionsPerWeek,
+      currentClass.sessionDates || {},
+      currentClass.customWeekCycles
+    );
+  }, [totalSessions, sessionsPerWeek, currentClass.sessionDates, currentClass.customWeekCycles]);
 
   // 点名台视图模式: 'daily' (今日课时点名) | 'weekly-stats' (周次考勤透视分析)
   const [viewMode, setViewMode] = useState<'daily' | 'weekly-stats'>('daily');
@@ -127,9 +134,9 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
   }, []);
 
   const weekDayNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-  const formattedDateStr = `${currentDateTime.getFullYear()}-${String(
+  const formattedDateStr = `${currentDateTime.getFullYear()}年${String(
     currentDateTime.getMonth() + 1
-  ).padStart(2, '0')}-${String(currentDateTime.getDate()).padStart(2, '0')}`;
+  ).padStart(2, '0')}月${String(currentDateTime.getDate()).padStart(2, '0')}日`;
   const formattedTimeStr = `${String(currentDateTime.getHours()).padStart(2, '0')}:${String(
     currentDateTime.getMinutes()
   ).padStart(2, '0')}`;
@@ -143,7 +150,7 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
   const initialDay = useMemo(() => {
     if (currentClass.sessionDates) {
       for (let d = 1; d <= totalSessions; d++) {
-        if (currentClass.sessionDates[d] === shortDateStr || currentClass.sessionDates[d] === formattedDateStr) {
+        if (currentClass.sessionDates[d] === shortDateStr || currentClass.sessionDates[d] === `${currentDateTime.getFullYear()}-${String(currentDateTime.getMonth() + 1).padStart(2, '0')}-${String(currentDateTime.getDate()).padStart(2, '0')}`) {
           return d;
         }
       }
@@ -162,10 +169,27 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
     setSelectedDay(initialDay);
   }, [initialDay, currentClass.id]);
 
-  // 当前点名课时所属的周次 (1 ~ 10)
+  // 当前点名课时所属的周次 (1 ~ N，支持自定义周期)
   const currentSessionWeekNumber = useMemo(() => {
-    return getWeekNumberForSession(selectedDay, sessionsPerWeek);
-  }, [selectedDay, sessionsPerWeek]);
+    return getWeekNumberForSessionWithCycles(selectedDay, weekCycles);
+  }, [selectedDay, weekCycles]);
+
+  // 今日选定课时的出勤、请假、旷课、迟到名单（满足需求：学生请假旷课的情况一目了然）
+  const todayLeaveStudents = useMemo(() => {
+    return students.filter(s => s.attendance[selectedDay] === 'P');
+  }, [students, selectedDay]);
+
+  const todayAbsentStudents = useMemo(() => {
+    return students.filter(s => s.attendance[selectedDay] === 'A');
+  }, [students, selectedDay]);
+
+  const todayLateStudents = useMemo(() => {
+    return students.filter(s => s.attendance[selectedDay] === 'L');
+  }, [students, selectedDay]);
+
+  const todayPresentStudents = useMemo(() => {
+    return students.filter(s => s.attendance[selectedDay] === '1');
+  }, [students, selectedDay]);
 
   // 同步当前周次
   useEffect(() => {
@@ -307,51 +331,37 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Top Banner: Today's Class & Auto Date / Time Header */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      {/* 大号【今日看台】(横向全景看板：班级、时间、教室、周期采用横向卡片，不同颜色鲜明区分，杜绝文字折行挤压) */}
+      <div className="bg-white p-5 sm:p-6 rounded-3xl border-2 border-blue-200/90 shadow-md space-y-4">
+        {/* Row 1: 顶部控制栏与课时切换操作区 (纯横向排列) */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <CuteAttendanceCat size={48} className="p-0.5 bg-emerald-50 rounded-xl border border-emerald-200/60 shadow-2xs shrink-0" />
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-md bg-blue-600 text-white text-xs font-bold tracking-wide">
-                  今日点名台
-                </span>
-                <h2 className="text-base font-bold text-slate-900">
-                  {currentClass.name} · 实时学生点名表
-                </h2>
-                <span className="text-xs text-slate-400">·</span>
-                <span className="text-xs text-slate-500 font-medium">
-                  {currentClass.schedule} · 教室: {currentClass.room || '待定'}
-                </span>
-              </div>
-
-            {/* Auto Generated Date & Time Strip */}
-            <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-slate-600">
-              <span className="inline-flex items-center gap-1.5 font-medium text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg">
+            <CuteAttendanceCat size={44} className="p-0.5 bg-blue-50 rounded-xl border border-blue-200 shadow-2xs shrink-0" />
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-black tracking-wide shadow-2xs whitespace-nowrap">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>今日看台 · 实时点名台</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 whitespace-nowrap">
                 <Calendar className="w-3.5 h-3.5 text-blue-600" />
                 <span>今天: {formattedDateStr} ({weekDayStr})</span>
               </span>
-              <span className="inline-flex items-center gap-1.5 font-medium text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg">
+              <span className="inline-flex items-center gap-1.5 text-xs font-mono font-semibold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 whitespace-nowrap">
                 <Clock className="w-3.5 h-3.5 text-emerald-600" />
-                <span>点名时间: {formattedTimeStr} (自动生成记录)</span>
-              </span>
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500">
-                授课形式: <strong className="text-slate-800">{sessionMode === 'online' ? '线上网课' : '线下教室'}</strong>
+                <span>点名时间: {formattedTimeStr}</span>
               </span>
             </div>
           </div>
-        </div>
 
-        {/* Right Action Buttons */}
+          {/* 右侧课时切换与操作按钮 (全部横向无折行) */}
           <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {/* Session Selector & Real Date Sync */}
-            <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg p-1 text-xs">
-              <span className="text-slate-500 pl-1">当前课时:</span>
+            {/* 课时下拉与日历 */}
+            <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-xl p-1 text-xs shadow-2xs">
+              <span className="text-slate-500 pl-1 font-semibold">点名课时:</span>
               <select
                 value={selectedDay}
                 onChange={e => setSelectedDay(Number(e.target.value))}
-                className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-blue-900 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-black text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs"
               >
                 {Array.from({ length: totalSessions }, (_, i) => i + 1).map(day => {
                   const dDate = currentClass.sessionDates?.[day] || `未设`;
@@ -364,12 +374,12 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
                 })}
               </select>
 
-              {/* Interactive Calendar Date Picker Popover */}
+              {/* 日历选日期 */}
               <div className="relative">
                 <button
                   type="button"
                   onClick={() => setIsDateCalendarOpen(!isDateCalendarOpen)}
-                  className={`flex items-center gap-1.5 bg-white border rounded px-2.5 py-1 text-[11px] cursor-pointer transition-all shadow-2xs hover:bg-blue-50/50 ${
+                  className={`flex items-center gap-1.5 bg-white border rounded-lg px-2 py-1 text-xs cursor-pointer transition-all shadow-2xs hover:bg-blue-50/50 ${
                     isDateCalendarOpen
                       ? 'border-blue-500 ring-2 ring-blue-500/20'
                       : 'border-slate-300 hover:border-blue-400'
@@ -378,14 +388,14 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
                 >
                   <CalendarDays className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                   <span className="font-mono font-bold text-slate-800">
-                    {sessionDateText || '点击选日期'}
+                    {sessionDateText || '选日期'}
                   </span>
                   {sessionWeekday && (
                     <span className="text-[10px] text-blue-700 font-semibold bg-blue-50 border border-blue-200 px-1 py-0.2 rounded">
                       {sessionWeekday}
                     </span>
                   )}
-                  <span className="text-[10px] text-slate-400 ml-0.5">▾</span>
+                  <span className="text-[10px] text-slate-400">▾</span>
                 </button>
 
                 {isDateCalendarOpen && (
@@ -407,54 +417,304 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
                 )}
               </div>
 
-              {/* Quick Set to Today button if different */}
+              {/* 设为今天快捷按钮 */}
               {sessionDateText !== shortDateStr && onUpdateSessionConfig && (
                 <button
                   type="button"
                   onClick={handleSyncToToday}
-                  className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-[11px] font-semibold transition-colors cursor-pointer flex items-center gap-1"
+                  className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
                   title="如实将此课时日期登记为今天真实公历日期"
                 >
-                  <Check className="w-3 h-3" />
+                  <Check className="w-3.5 h-3.5" />
                   <span>设为今天 ({shortDateStr})</span>
                 </button>
               )}
             </div>
 
-            {/* Quick Batch All Present */}
+            {/* 一键全员到齐 */}
             <button
               onClick={handleBatchAllPresent}
-              className="px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              className="px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-98"
               title="一键将选定课时全班设为 1 (出勤)，再单独标记个别迟到或请假"
             >
               <UserCheck className="w-4 h-4 text-emerald-600" />
               <span>全员到齐 (一键全勤)</span>
             </button>
 
-            {/* Switch to Full Browse */}
+            {/* 切换到全表台账 */}
             <button
               onClick={onSwitchToBrowse}
-              className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-              title="切换到 30 课时全周期考勤浏览台账"
+              className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
+              title="切换到全周期考勤浏览台账"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" />
               <span>考勤总览台账</span>
-              <ArrowRight className="w-3 h-3 text-slate-400" />
+              <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
             </button>
 
-            {/* 自动实时保存指示 */}
+            {/* 自动保存指示 */}
             <span
-              className="inline-flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1.5 rounded-lg font-medium"
+              className="inline-flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-xl font-bold shadow-2xs"
               title="实时自动保存已启用，所有修改即时入库"
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>自动保存中</span>
             </span>
           </div>
         </div>
 
+        {/* Row 2: 【4大横向核心信息看板卡片】(纯横向排布，不同颜色鲜明区分，绝不上下挤压) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {/* 卡片 1: 授课班级卡片 (蔚蓝/靛青色系 - 凸显班级名称) */}
+          <div className="p-4 rounded-2xl border-2 border-blue-300 bg-gradient-to-br from-blue-50/90 via-indigo-50/50 to-white shadow-xs space-y-1.5 transition-all hover:shadow-md">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-blue-900 flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-600" />
+                <span>📘 授课班级 (Class)</span>
+              </span>
+              <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-200">
+                {currentClass.code || '班级代码'}
+              </span>
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis" title={currentClass.name}>
+              {currentClass.name}
+            </div>
+            <div className="text-[11px] text-blue-700 font-semibold flex items-center gap-1">
+              <span>在册 {students.length} 名学生</span>
+              <span className="text-slate-300">·</span>
+              <span>满学期 {totalSessions} 课时</span>
+            </div>
+          </div>
+
+          {/* 卡片 2: 上课时间卡片 (翡翠绿/青碧色系 - 鲜明区分时间段) */}
+          <div className="p-4 rounded-2xl border-2 border-emerald-300 bg-gradient-to-br from-emerald-50/90 via-teal-50/50 to-white shadow-xs space-y-1.5 transition-all hover:shadow-md">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-emerald-900 flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
+                <span>⏰ 上课时间 (Schedule)</span>
+              </span>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-200">
+                固定时段
+              </span>
+            </div>
+            <div className="text-lg sm:text-xl font-black text-emerald-950 tracking-tight whitespace-nowrap">
+              {currentClass.schedule}
+            </div>
+            <div className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
+              <Clock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span>准时上课 · 自动记录迟到打卡</span>
+            </div>
+          </div>
+
+          {/* 卡片 3: 上课教室卡片 (紫罗兰/魅紫色系 - 鲜明区分教室地点) */}
+          <div className="p-4 rounded-2xl border-2 border-purple-300 bg-gradient-to-br from-purple-50/90 via-fuchsia-50/40 to-white shadow-xs space-y-1.5 transition-all hover:shadow-md">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-purple-900 flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-600" />
+                <span>🏫 上课教室与形式 (Room)</span>
+              </span>
+              <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
+                sessionMode === 'online' ? 'bg-sky-100 text-sky-900 border-sky-300' : 'bg-purple-100 text-purple-900 border-purple-200'
+              }`}>
+                {sessionMode === 'online' ? '💻 线上' : '🏫 线下'}
+              </span>
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-purple-950 tracking-tight whitespace-nowrap">
+              教室: {currentClass.room || 'G101'}
+            </div>
+            <div className="text-[11px] text-purple-700 font-semibold flex items-center gap-1">
+              <MapPin className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+              <span>{sessionMode === 'online' ? '线上网课直播会议' : '实体面授教室'}</span>
+            </div>
+          </div>
+
+          {/* 卡片 4: 教学阶段与周期卡片 (活力橙/琥珀色系 - 鲜明区分哪一周哪一天) */}
+          <div className="p-4 rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-50/90 via-orange-50/50 to-white shadow-xs space-y-1.5 transition-all hover:shadow-md">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-amber-900 flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                <span>🎯 教学阶段 (Week & Day)</span>
+              </span>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                今日排期
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 whitespace-nowrap">
+              <span className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 text-white font-black text-xs sm:text-sm shadow-2xs">
+                第 {currentSessionWeekNumber} 周
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-blue-600 text-white font-black text-xs sm:text-sm shadow-2xs">
+                第 {selectedDay} 课
+              </span>
+            </div>
+            <div className="text-[11px] font-mono font-bold text-slate-700 truncate">
+              📅 排期: {sessionDateText || shortDateStr} ({sessionWeekday || weekDayStr})
+            </div>
+          </div>
+        </div>
+
+        {/* Row 3: 【学生请假旷课的情况】(实时大卡片，一目了然看清缺课缺假名单) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {/* Card 1: 🟡 今日请假学生 */}
+          <div className={`p-4 rounded-2xl border transition-all ${
+            todayLeaveStudents.length > 0
+              ? 'bg-amber-50/80 border-amber-300 shadow-xs ring-1 ring-amber-200'
+              : 'bg-slate-50/70 border-slate-200'
+          }`}>
+            <div className="flex items-center justify-between pb-1.5 border-b border-amber-200/60">
+              <span className="text-xs font-black text-amber-950 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                <span>P 请假学生情况</span>
+              </span>
+              <span className="text-sm font-black font-mono text-amber-900 bg-white px-2 py-0.5 rounded-lg border border-amber-200 shadow-2xs">
+                {todayLeaveStudents.length} 人
+              </span>
+            </div>
+
+            <div className="pt-2">
+              {todayLeaveStudents.length === 0 ? (
+                <div className="text-xs text-slate-400 py-1 font-medium">
+                  今日暂无学生请假 👌
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-28 overflow-y-auto custom-scrollbar pr-1">
+                  {todayLeaveStudents.map(s => {
+                    const note = s.attendanceNotes?.[selectedDay] || '';
+                    return (
+                      <div
+                        key={s.id}
+                        onClick={() => onSelectStudentModal(s)}
+                        className="flex items-center justify-between text-xs bg-white p-1.5 rounded-lg border border-amber-200 shadow-2xs hover:border-amber-400 cursor-pointer transition-colors"
+                        title="点击查看学生档案"
+                      >
+                        <span className="font-bold text-amber-950 truncate max-w-[110px]">
+                          {s.name}
+                        </span>
+                        <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded truncate max-w-[130px]">
+                          {note || '事假/病假'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Card 2: 🔴 今日旷课学生 */}
+          <div className={`p-4 rounded-2xl border transition-all ${
+            todayAbsentStudents.length > 0
+              ? 'bg-rose-50/90 border-rose-300 shadow-xs ring-1 ring-rose-200'
+              : 'bg-slate-50/70 border-slate-200'
+          }`}>
+            <div className="flex items-center justify-between pb-1.5 border-b border-rose-200/60">
+              <span className="text-xs font-black text-rose-950 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                <span>A 旷课学生情况</span>
+              </span>
+              <span className="text-sm font-black font-mono text-rose-900 bg-white px-2 py-0.5 rounded-lg border border-rose-200 shadow-2xs">
+                {todayAbsentStudents.length} 人
+              </span>
+            </div>
+
+            <div className="pt-2">
+              {todayAbsentStudents.length === 0 ? (
+                <div className="text-xs text-emerald-700 py-1 font-bold flex items-center gap-1">
+                  <span>今日全勤无旷课 🎉</span>
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-28 overflow-y-auto custom-scrollbar pr-1">
+                  {todayAbsentStudents.map(s => (
+                    <div
+                      key={s.id}
+                      onClick={() => onSelectStudentModal(s)}
+                      className="flex items-center justify-between text-xs bg-white p-1.5 rounded-lg border border-rose-300 shadow-2xs hover:border-rose-500 cursor-pointer transition-colors"
+                      title="点击查看学生档案"
+                    >
+                      <span className="font-black text-rose-950">
+                        {s.name}
+                      </span>
+                      <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">
+                        未到/缺课 (-0.5)
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Card 3: 🔵 今日迟到学生 */}
+          <div className={`p-4 rounded-2xl border transition-all ${
+            todayLateStudents.length > 0
+              ? 'bg-sky-50/80 border-sky-300 shadow-xs ring-1 ring-sky-200'
+              : 'bg-slate-50/70 border-slate-200'
+          }`}>
+            <div className="flex items-center justify-between pb-1.5 border-b border-sky-200/60">
+              <span className="text-xs font-black text-sky-950 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-sky-500" />
+                <span>L 迟到学生情况</span>
+              </span>
+              <span className="text-sm font-black font-mono text-sky-900 bg-white px-2 py-0.5 rounded-lg border border-sky-200 shadow-2xs">
+                {todayLateStudents.length} 人
+              </span>
+            </div>
+
+            <div className="pt-2">
+              {todayLateStudents.length === 0 ? (
+                <div className="text-xs text-slate-400 py-1 font-medium">
+                  今日无迟到记录
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-28 overflow-y-auto custom-scrollbar pr-1">
+                  {todayLateStudents.map(s => (
+                    <div
+                      key={s.id}
+                      onClick={() => onSelectStudentModal(s)}
+                      className="flex items-center justify-between text-xs bg-white p-1.5 rounded-lg border border-sky-200 shadow-2xs hover:border-sky-400 cursor-pointer transition-colors"
+                      title="点击查看学生档案"
+                    >
+                      <span className="font-bold text-sky-950">
+                        {s.name}
+                      </span>
+                      <span className="text-[10px] text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded">
+                        已登记迟到
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Card 4: 🟢 今日出勤概览 */}
+          <div className="p-4 rounded-2xl border border-emerald-200 bg-emerald-50/70 shadow-2xs space-y-2">
+            <div className="flex items-center justify-between pb-1.5 border-b border-emerald-200/60">
+              <span className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span>1 正常到课概况</span>
+              </span>
+              <span className="text-sm font-black font-mono text-emerald-900 bg-white px-2 py-0.5 rounded-lg border border-emerald-200 shadow-2xs">
+                {stats.present} / {stats.total} 人
+              </span>
+            </div>
+
+            <div className="pt-0.5 flex items-center justify-between text-xs">
+              <span className="text-slate-600 font-medium">今日出勤率:</span>
+              <span className="text-base font-black font-mono text-emerald-800">
+                {stats.total > 0 ? Math.round((stats.present / (stats.total - stats.exempt || 1)) * 100) : 100}%
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-emerald-200/40">
+              <span>已点名进度:</span>
+              <span className="font-mono font-bold text-slate-800">{stats.completed} / {stats.total}人</span>
+            </div>
+          </div>
+        </div>
+
         {/* 顶部上课进度提醒条 */}
-        <div className="bg-blue-50/80 border border-blue-200 rounded-lg px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="bg-blue-50/80 border border-blue-200 rounded-xl px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2 text-blue-950">
             <span className="font-bold flex items-center gap-1 text-blue-900 shrink-0">
               <BookOpen className="w-3.5 h-3.5 text-blue-600" />
@@ -485,7 +745,7 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
 
         {/* Sync / Update Notice Banner */}
         {syncNotice && (
-          <div className="mt-3 p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs font-medium flex items-center justify-between animate-in fade-in">
+          <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center justify-between animate-in fade-in">
             <span className="flex items-center gap-1.5">
               <Check className="w-3.5 h-3.5 text-emerald-600" />
               <span>{syncNotice}</span>
@@ -498,80 +758,6 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
             </button>
           </div>
         )}
-
-        {/* Inline Date Editor Popover */}
-        {isEditingSessionDate && (
-          <div className="mt-3 p-3 bg-blue-50/80 border border-blue-200 rounded-xl text-xs flex flex-wrap items-center justify-between gap-2 animate-in fade-in">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-blue-900">修改第 {selectedDay} 课排期公历日期:</span>
-              <input
-                type="text"
-                value={sessionDateInput}
-                onChange={e => setSessionDateInput(e.target.value)}
-                placeholder="例如: 11/07 或 2026-11-07"
-                className="w-32 px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-              <span className="text-slate-500 text-[11px]">如遇放假、调休或调课，可在此手动修改真实上课日期</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setSessionDateInput(shortDateStr)}
-                className="px-2 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded text-xs cursor-pointer"
-              >
-                填入今天 ({shortDateStr})
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsEditingSessionDate(false)}
-                className="px-2.5 py-1 text-slate-500 hover:text-slate-700 cursor-pointer"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveCustomDate}
-                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded cursor-pointer shadow-2xs"
-              >
-                确定更新日期
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Real-time KPI Stats Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-7 gap-2 pt-4 mt-4 border-t border-slate-100 text-center">
-          <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-            <div className="text-[11px] text-slate-400">在册总人数</div>
-            <div className="text-base font-bold font-mono text-slate-800 mt-0.5">{stats.total}人</div>
-          </div>
-          <div className="bg-emerald-50/70 p-2 rounded-lg border border-emerald-100">
-            <div className="text-[11px] text-emerald-700 font-medium">1 正常出勤</div>
-            <div className="text-base font-bold font-mono text-emerald-800 mt-0.5">{stats.present}人</div>
-          </div>
-          <div className="bg-sky-50/70 p-2 rounded-lg border border-sky-100">
-            <div className="text-[11px] text-sky-700 font-medium">L 迟到(3次-0.5)</div>
-            <div className="text-base font-bold font-mono text-sky-800 mt-0.5">{stats.late}人</div>
-          </div>
-          <div className="bg-amber-50/70 p-2 rounded-lg border border-amber-100">
-            <div className="text-[11px] text-amber-700 font-medium">P 请假(-0.25)</div>
-            <div className="text-base font-bold font-mono text-amber-800 mt-0.5">{stats.leave}人</div>
-          </div>
-          <div className="bg-rose-50/70 p-2 rounded-lg border border-rose-100">
-            <div className="text-[11px] text-rose-700 font-medium">A 旷课(-0.5)</div>
-            <div className="text-base font-bold font-mono text-rose-800 mt-0.5">{stats.absent}人</div>
-          </div>
-          <div className="bg-slate-100/70 p-2 rounded-lg border border-slate-200">
-            <div className="text-[11px] text-slate-600 font-medium">- 停课/换班(0扣)</div>
-            <div className="text-base font-bold font-mono text-slate-700 mt-0.5">{stats.exempt}人</div>
-          </div>
-          <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-            <div className="text-[11px] text-slate-400">点名进度</div>
-            <div className="text-base font-bold font-mono text-blue-700 mt-0.5">
-              {stats.completed}/{stats.total}
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* 智能教学周期与周度考勤学情透视导航栏 */}

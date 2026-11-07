@@ -153,7 +153,17 @@ export interface ClassRoom {
   currentTeachingDay?: number; // 今天要教到哪一天(第几课)，如第 6 课
   currentTeachingTopic?: string; // 今天具体教学进度/授课内容，如 "第3单元 课文与语法操练"
   sessionProgress?: Record<number, string>; // 各课时的教学大纲进度规划，如 { 1: "拼音声母与声调", 2: "第一单元课文", 3: "课后综合练习" }
+  customWeekCycles?: WeekCycleConfig[]; // 用户手动自定义调整的周期划分 (支持1天/2天/3天/5天自由定制)
   colorTheme?: string;
+}
+
+// 用户手动调整的周次周期划分配置
+export interface WeekCycleConfig {
+  weekNumber: number; // 1, 2, ..., N
+  startDay: number; // 起始课时
+  endDay: number; // 结束课时
+  sessionDays?: number[]; // 包含的具体课时列表，如 [1, 2] (2天) 或 [3] (1天) 或 [4, 5, 6, 7, 8] (5天)
+  label?: string; // 可选自定义标签，如 "第 1 周"
 }
 
 export interface MissingHomeworkRecord {
