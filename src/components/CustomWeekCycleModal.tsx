@@ -16,29 +16,48 @@ import {
   AlertCircle,
   HelpCircle,
   Layers,
-  ChevronRight
+  ChevronRight,
+  Users
 } from 'lucide-react';
 import { ClassRoom, WeekCycleConfig } from '../types';
 import { WeekCycle } from '../utils/cycleHelper';
-import { getWeekdayName } from '../utils/scheduleHelper';
+import {
+  getWeekdayName,
+  getScheduleCohort,
+  getCohortDisplayName,
+  createFirstWeek2DaysPreset,
+  createFirstWeek1DayPreset
+} from '../utils/scheduleHelper';
 
 interface CustomWeekCycleModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentClass: ClassRoom;
-  onSaveCustomWeekCycles: (classId: string, cycles: WeekCycleConfig[]) => void;
+  allClasses?: ClassRoom[];
+  onSaveCustomWeekCycles: (classId: string, cycles: WeekCycleConfig[], syncToCohort: boolean) => void;
 }
 
 export const CustomWeekCycleModal: React.FC<CustomWeekCycleModalProps> = ({
   isOpen,
   onClose,
   currentClass,
+  allClasses = [],
   onSaveCustomWeekCycles
 }) => {
   if (!isOpen) return null;
 
   const totalSessions = currentClass.totalSessions || 30;
   const sessionDates = currentClass.sessionDates || {};
+
+  // 同周期课群归属 (周一至周三课群 / 周四至周五课群)
+  const currentCohort = getScheduleCohort(currentClass.schedule, currentClass.name);
+  const cohortDisplayName = getCohortDisplayName(currentCohort);
+  const siblingClasses = (allClasses || []).filter(
+    c => c.id !== currentClass.id && getScheduleCohort(c.schedule, c.name) === currentCohort && currentCohort !== 'other'
+  );
+
+  // 默认开启课群自动同步 (满足用户需求：第一周两天或一天，其他周一同步)
+  const [syncToCohort, setSyncToCohort] = useState<boolean>(true);
 
   // Initialize draft cycles based on existing custom cycles or smart defaults
   const [draftCycles, setDraftCycles] = useState<WeekCycleConfig[]>(() => {
@@ -274,6 +293,18 @@ export const CustomWeekCycleModal: React.FC<CustomWeekCycleModalProps> = ({
     setDraftCycles(updated);
   };
 
+  // Preset 6 (用户需求定制): 首周2天 + 其余常规3天 (周一至周三课群首周两天同步)
+  const handlePresetFirstWeek2Days = () => {
+    const list = createFirstWeek2DaysPreset(totalSessions);
+    setDraftCycles(list);
+  };
+
+  // Preset 7 (用户需求定制): 首周1天 + 其余常规2天 (周四至周五课群首周一天同步)
+  const handlePresetFirstWeek1Day = () => {
+    const list = createFirstWeek1DayPreset(totalSessions);
+    setDraftCycles(list);
+  };
+
   // Total sessions assigned
   const totalAssignedSessions = draftCycles.reduce(
     (sum, c) => sum + (c.sessionDays?.length || 0),
@@ -283,7 +314,7 @@ export const CustomWeekCycleModal: React.FC<CustomWeekCycleModalProps> = ({
   const handleSave = () => {
     // Clean and validate
     const valid = draftCycles.filter(c => c.sessionDays && c.sessionDays.length > 0);
-    onSaveCustomWeekCycles(currentClass.id, valid);
+    onSaveCustomWeekCycles(currentClass.id, valid, syncToCohort);
     onClose();
   };
 
@@ -299,14 +330,14 @@ export const CustomWeekCycleModal: React.FC<CustomWeekCycleModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-extrabold tracking-tight">
-                  调整周次周期 (自定义每周天数)
+                  调整周次周期 (自定义每周天数与同周期同步)
                 </h3>
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white/20 text-white border border-white/30">
-                  班级: {currentClass.name}
+                  班级: {currentClass.name} ({cohortDisplayName})
                 </span>
               </div>
               <p className="text-xs text-amber-100 mt-0.5">
-                支持自由设置每一周包含 1天、2天、3天、5天；如遇节假日调课或考试，可灵活定制考勤表头周次分组
+                支持自由设置每一周包含 1天、2天、3天、5天；修改后支持一键同步至同周期全部班级（如周一到周三、周四到周五同步）。
               </p>
             </div>
           </div>
@@ -320,59 +351,121 @@ export const CustomWeekCycleModal: React.FC<CustomWeekCycleModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 overflow-y-auto space-y-5 custom-scrollbar flex-1">
+        <div className="p-6 overflow-y-auto space-y-4 custom-scrollbar flex-1">
+          {/* 同周期班级自动同步控制卡片 (满足用户：GCP1第一周有两天则周一到周三同步，周四周五有一班只有一天也同步) */}
+          <div className="bg-gradient-to-r from-blue-50/90 via-indigo-50/80 to-blue-50/90 border border-blue-200 rounded-xl p-3.5 shadow-2xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  id="syncCohortCycles"
+                  checked={syncToCohort}
+                  onChange={e => setSyncToCohort(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                />
+                <div>
+                  <label htmlFor="syncCohortCycles" className="text-xs font-black text-blue-950 cursor-pointer select-none flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-blue-600" />
+                    <span>课群周期自动同步：已开启【{cohortDisplayName}】全员同步</span>
+                    <span className="text-[10px] bg-blue-600 text-white px-2 py-0.2 rounded-full font-bold">
+                      默认同步开启
+                    </span>
+                  </label>
+                  <p className="text-[11px] text-blue-700 mt-0.5 leading-relaxed">
+                    {currentCohort === 'mw'
+                      ? '🌟 当前为【周一至周三课群】（如 CG-PRE GCP1、MW 系列等）：若此班第一周设为 2 天，保存后所有周一至周三班级第一周也同步对齐为 2 天！'
+                      : currentCohort === 'tf'
+                      ? '🌟 当前为【周四至周五课群】（如 TF 系列班级）：若此班一周只有 1 天，保存后所有周四至周五班级也同步对齐为 1 天！'
+                      : '🌟 保存后同排期规则的所有班级均将同步此周次周期与分组划分。'}
+                  </p>
+                </div>
+              </div>
+
+              {siblingClasses.length > 0 && (
+                <div className="shrink-0 bg-white/80 border border-blue-100 rounded-lg px-2.5 py-1.5 text-right">
+                  <div className="text-[10px] font-bold text-blue-600">
+                    同课群共 {siblingClasses.length} 个同步班级：
+                  </div>
+                  <div className="text-xs font-extrabold text-blue-900 truncate max-w-[220px]" title={siblingClasses.map(c => c.name).join('、')}>
+                    {siblingClasses.map(c => c.name).join('、')}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Preset Buttons Strip */}
           <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-3.5 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                <span>快速一键周期模板：</span>
+                <span>快速一键周期模板（含专属同步方案）：</span>
               </span>
               <span className="text-[11px] text-amber-700">
-                可先选用最接近的模板，再在下方微调某一周（如把某周改为1天或5天）
+                点击一键应用，可在下方微调任何一周
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {/* 用户定制专属推荐 1：首周2天 + 常规3天 */}
+              <button
+                type="button"
+                onClick={handlePresetFirstWeek2Days}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-black transition-all shadow-xs cursor-pointer flex items-center gap-1"
+                title="满足用户要求：首周2天（第1~2课），之后常规每周3天，自动同步周一到周三所有班级"
+              >
+                <span>⭐ 首周2天 + 其余每周3天 (周一至周三课群同步)</span>
+              </button>
+
+              {/* 用户定制专属推荐 2：首周1天 + 常规2天 */}
+              <button
+                type="button"
+                onClick={handlePresetFirstWeek1Day}
+                className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-black transition-all shadow-xs cursor-pointer flex items-center gap-1"
+                title="满足用户要求：首周1天（第1课），之后常规每周2天，自动同步周四周五所有班级"
+              >
+                <span>⭐ 首周1天 + 其余每周2天 (周四至周五课群同步)</span>
+              </button>
+
               <button
                 type="button"
                 onClick={handlePreset3Days}
-                className="px-3 py-1.5 bg-white hover:bg-amber-100 text-amber-950 border border-amber-300 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1"
+                className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-950 border border-amber-300 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1"
                 title="周一/周三上课等常用：每周3天，共10周30课"
               >
-                <span>⚡ 均分 3 天/周 (30课/10周)</span>
+                <span>均分 3 天/周</span>
               </button>
               <button
                 type="button"
                 onClick={handlePreset2Days}
-                className="px-3 py-1.5 bg-white hover:bg-amber-100 text-amber-950 border border-amber-300 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1"
+                className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-950 border border-amber-300 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1"
                 title="周四/周五上课等常用：每周2天，共10周20课"
               >
-                <span>⚡ 均分 2 天/周 (20课/10周)</span>
+                <span>均分 2 天/周</span>
               </button>
               <button
                 type="button"
                 onClick={handlePreset5Days}
-                className="px-3 py-1.5 bg-white hover:bg-amber-100 text-amber-950 border border-amber-300 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1"
+                className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-950 border border-amber-300 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1"
                 title="全日制连续上课：每周5天"
               >
-                <span>⚡ 均分 5 天/周 (工作日班)</span>
+                <span>均分 5 天/周</span>
               </button>
               <button
                 type="button"
                 onClick={handlePreset1Day}
-                className="px-3 py-1.5 bg-white hover:bg-amber-100 text-amber-950 border border-amber-300 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1"
+                className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-950 border border-amber-300 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1"
                 title="每周单课：每周1天"
               >
-                <span>⚡ 均分 1 天/周</span>
+                <span>均分 1 天/周</span>
               </button>
               <button
                 type="button"
                 onClick={handlePresetNaturalCalendarWeeks}
-                className="px-3 py-1.5 bg-white hover:bg-amber-100 text-amber-950 border border-amber-300 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1"
+                className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-950 border border-amber-300 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1"
                 title="根据表格排期公历日期，同属于自然周一至周日的自动合并为同一教学周"
               >
                 <Calendar className="w-3.5 h-3.5 text-amber-600" />
-                <span>📅 按公历真实自然周归并</span>
+                <span>公历自然周合并</span>
               </button>
             </div>
           </div>

@@ -68,7 +68,7 @@ interface AttendanceViewProps {
   onOpenTransferStudent?: (student: Student) => void;
   onOpenEditStudent?: (student: Student) => void;
   onSwitchToRollCall?: () => void;
-  onUpdateClassWeekCycles?: (classId: string, cycles: WeekCycleConfig[]) => void;
+  onUpdateClassWeekCycles?: (classId: string, cycles: WeekCycleConfig[], syncToCohort?: boolean) => void;
   onUpdateSessionConfig: (
     day: number,
     date: string,
@@ -516,20 +516,24 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               </button>
             )}
 
-            {/* 手动调整周次周期按钮 (满足图2需求：一周只上两天或一天，不一定全都三天，有的上五天) */}
+            {/* 手动调整周次周期按钮 (满足需求：支持首周2天/1天，同周期周一到周三、周四到周五自动同步) */}
             <button
               type="button"
               onClick={() => setIsCustomCycleModalOpen(true)}
-              className="px-2.5 py-1 text-xs font-bold text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-md transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap shadow-2xs"
-              title="自由手动调整周次周期（支持每周1天/2天/3天/5天灵活定制，如遇假期或特殊排课）"
+              className="px-2.5 py-1 text-xs font-bold text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-md transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-2xs"
+              title="自由手动调整周次周期（支持首周2天/1天，支持周一到周三、周四到周五课群全员同步）"
             >
               <CalendarRange className="w-3.5 h-3.5 text-amber-700" />
               <span>调整周次周期 (图2)</span>
-              {currentClass.customWeekCycles && currentClass.customWeekCycles.length > 0 && (
+              {currentClass.customWeekCycles && currentClass.customWeekCycles.length > 0 ? (
                 <span className="text-[10px] bg-amber-400 text-amber-950 px-1 rounded-full font-mono font-black">
-                  已自定义
+                  已同步周期
                 </span>
-              )}
+              ) : siblingClasses.length > 0 ? (
+                <span className="text-[10px] bg-blue-100 text-blue-800 px-1 rounded-full font-mono font-bold">
+                  {currentCohort === 'mw' ? '周一至周三课群' : currentCohort === 'tf' ? '周四至周五课群' : '同课群'}
+                </span>
+              ) : null}
             </button>
 
             {/* Quick schedule manager button */}
@@ -2613,14 +2617,15 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
         </div>
       )}
 
-      {/* 自定义教学周次周期划分弹窗 (图2：自由设置1天/2天/3天/5天) */}
+      {/* 自定义教学周次周期划分弹窗 (图2：自由设置1天/2天/3天/5天，支持同课群自动同步) */}
       <CustomWeekCycleModal
         isOpen={isCustomCycleModalOpen}
         onClose={() => setIsCustomCycleModalOpen(false)}
         currentClass={currentClass}
-        onSaveCustomWeekCycles={(classId, cycles) => {
+        allClasses={allClasses}
+        onSaveCustomWeekCycles={(classId, cycles, syncToCohort) => {
           if (onUpdateClassWeekCycles) {
-            onUpdateClassWeekCycles(classId, cycles);
+            onUpdateClassWeekCycles(classId, cycles, syncToCohort);
           }
         }}
       />

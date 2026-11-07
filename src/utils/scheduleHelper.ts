@@ -206,16 +206,25 @@ export type ScheduleCohortType = 'mw' | 'tf' | 'weekend' | 'other';
 
 export function getScheduleCohort(schedule = '', className = ''): ScheduleCohortType {
   const combined = `${schedule} ${className}`.toLowerCase();
+  
+  // 1. 周一至周三课群 (包含 CG-PRE GCP1, GCP系列, MW, 周一/周三等)
   if (
     combined.includes('mw') ||
+    combined.includes('gcp') ||
+    combined.includes('gc-pre') ||
+    combined.includes('cg-pre') ||
     (combined.includes('周一') && combined.includes('周三')) ||
     combined.includes('周一到周三') ||
     combined.includes('周一至周三') ||
     combined.includes('周一和周三') ||
-    combined.includes('周一、周三')
+    combined.includes('周一、周三') ||
+    (combined.includes('周一') && !combined.includes('周四') && !combined.includes('周五')) ||
+    (combined.includes('周三') && !combined.includes('周四') && !combined.includes('周五'))
   ) {
     return 'mw';
   }
+
+  // 2. 周四至周五课群 (包含 TF, 周四/周五等)
   if (
     combined.includes('tf') ||
     (combined.includes('周四') && combined.includes('周五')) ||
@@ -223,10 +232,14 @@ export function getScheduleCohort(schedule = '', className = ''): ScheduleCohort
     combined.includes('周四至周五') ||
     combined.includes('周四和周五') ||
     combined.includes('周四、周五') ||
-    (combined.includes('周二') && combined.includes('周五'))
+    (combined.includes('周二') && combined.includes('周五')) ||
+    (combined.includes('周四') && !combined.includes('周一') && !combined.includes('周三')) ||
+    (combined.includes('周五') && !combined.includes('周一') && !combined.includes('周三'))
   ) {
     return 'tf';
   }
+
+  // 3. 周末班群
   if (
     combined.includes('周六') ||
     combined.includes('周日') ||
@@ -236,6 +249,7 @@ export function getScheduleCohort(schedule = '', className = ''): ScheduleCohort
   ) {
     return 'weekend';
   }
+
   return 'other';
 }
 
@@ -250,6 +264,107 @@ export function getCohortDisplayName(cohort: ScheduleCohortType): string {
     default:
       return '独立排期班级';
   }
+}
+
+/**
+ * 将某个班级设定的自定义周次周期结构（如第1周2天、第2周3天...），自适应同步给同课群其他班级
+ */
+export function adaptWeekCyclesForClass(
+  targetClass: { totalSessions?: number; schedule?: string; name?: string },
+  sourceCycles: { weekNumber: number; startDay: number; endDay: number; sessionDays?: number[]; label?: string }[]
+): { weekNumber: number; startDay: number; endDay: number; sessionDays: number[]; label: string }[] {
+  const total = targetClass.totalSessions || 30;
+  let currentDay = 1;
+  const result: { weekNumber: number; startDay: number; endDay: number; sessionDays: number[]; label: string }[] = [];
+
+  sourceCycles.forEach((cycle, idx) => {
+    if (currentDay > total) return;
+    const dayCount = cycle.sessionDays?.length || Math.max(1, cycle.endDay - cycle.startDay + 1);
+    const startDay = currentDay;
+    const endDay = Math.min(total, startDay + dayCount - 1);
+    const days: number[] = [];
+    for (let d = startDay; d <= endDay; d++) {
+      days.push(d);
+    }
+    result.push({
+      weekNumber: idx + 1,
+      startDay,
+      endDay,
+      sessionDays: days,
+      label: cycle.label || `第 ${idx + 1} 周`
+    });
+    currentDay = endDay + 1;
+  });
+
+  // 若源周期天数未满目标班级总课时，按课群常规天数自动顺延
+  if (currentDay <= total) {
+    const defaultPerWeek = (targetClass.schedule?.includes('周四') || targetClass.schedule?.includes('周五')) ? 2 : 3;
+    let wNum = result.length + 1;
+    while (currentDay <= total) {
+      const endDay = Math.min(total, currentDay + defaultPerWeek - 1);
+      const days: number[] = [];
+      for (let d = currentDay; d <= endDay; d++) days.push(d);
+      result.push({
+        weekNumber: wNum,
+        startDay: currentDay,
+        endDay,
+        sessionDays: days,
+        label: `第 ${wNum} 周`
+      });
+      currentDay = endDay + 1;
+      wNum++;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * 生成【首周2天 + 常规3天/周】预设（周一至周三常用，满足第一周两天需求）
+ */
+export function createFirstWeek2DaysPreset(
+  totalSessions = 30
+): { weekNumber: number; startDay: number; endDay: number; sessionDays: number[]; label: string }[] {
+  const list: { weekNumber: number; startDay: number; endDay: number; sessionDays: number[]; label: string }[] = [];
+  let cur = 1;
+  let w = 1;
+
+  while (cur <= totalSessions) {
+    // 第1周固定为2天，其余周均分3天
+    const perWeek = w === 1 ? 2 : 3;
+    const end = Math.min(totalSessions, cur + perWeek - 1);
+    const days: number[] = [];
+    for (let d = cur; d <= end; d++) days.push(d);
+    list.push({ weekNumber: w, startDay: cur, endDay: end, sessionDays: days, label: `第 ${w} 周` });
+    cur = end + 1;
+    w++;
+  }
+
+  return list;
+}
+
+/**
+ * 生成【首周1天 + 常规2天/周】预设（周四至周五常用，满足一周只有一天需求）
+ */
+export function createFirstWeek1DayPreset(
+  totalSessions = 20
+): { weekNumber: number; startDay: number; endDay: number; sessionDays: number[]; label: string }[] {
+  const list: { weekNumber: number; startDay: number; endDay: number; sessionDays: number[]; label: string }[] = [];
+  let cur = 1;
+  let w = 1;
+
+  while (cur <= totalSessions) {
+    // 第1周固定为1天，其余周均分2天
+    const perWeek = w === 1 ? 1 : 2;
+    const end = Math.min(totalSessions, cur + perWeek - 1);
+    const days: number[] = [];
+    for (let d = cur; d <= end; d++) days.push(d);
+    list.push({ weekNumber: w, startDay: cur, endDay: end, sessionDays: days, label: `第 ${w} 周` });
+    cur = end + 1;
+    w++;
+  }
+
+  return list;
 }
 
 /**

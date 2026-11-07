@@ -57,7 +57,8 @@ import {
   getScheduleCohort,
   getCohortDisplayName,
   getDefaultMilestonesForSessions,
-  ScheduleCohortType
+  ScheduleCohortType,
+  adaptWeekCyclesForClass
 } from './utils/scheduleHelper';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -850,11 +851,16 @@ export default function App() {
         if (c.id === sourceClassId) return c;
         if (getScheduleCohort(c.schedule, c.name) !== targetCohort) return c;
 
+        const adaptedCycles = sourceClass.customWeekCycles
+          ? adaptWeekCyclesForClass(c, sourceClass.customWeekCycles)
+          : c.customWeekCycles;
+
         return {
           ...c,
           sessionDates: { ...(sourceClass.sessionDates || {}) },
           sessionModes: { ...(sourceClass.sessionModes || {}) },
-          sessionMilestones: { ...(sourceClass.sessionMilestones || {}) }
+          sessionMilestones: { ...(sourceClass.sessionMilestones || {}) },
+          customWeekCycles: adaptedCycles
         };
       })
     );
@@ -894,23 +900,43 @@ export default function App() {
     );
   };
 
-  // 11.4 自定义更新周次周期划分 (支持1天/2天/3天/5天自由定制，满足图2需求)
-  const handleUpdateClassWeekCycles = (classId: string, customWeekCycles: WeekCycleConfig[]) => {
+  // 11.4 自定义更新周次周期划分 (支持1天/2天/3天/5天自由定制，支持同周期班级全员自动同步)
+  const handleUpdateClassWeekCycles = (
+    classId: string,
+    customWeekCycles: WeekCycleConfig[],
+    syncToCohort: boolean = true
+  ) => {
+    const sourceClass = classes.find(c => c.id === classId);
+    if (!sourceClass) return;
+
+    const currentCohort = getScheduleCohort(sourceClass.schedule, sourceClass.name);
+    const syncedNames: string[] = [];
+
     setClasses(prev =>
       prev.map(c => {
-        if (c.id !== classId) return c;
+        const isSource = c.id === classId;
+        const isSameCohort = syncToCohort && currentCohort !== 'other' && getScheduleCohort(c.schedule, c.name) === currentCohort;
+        if (!isSource && !isSameCohort) return c;
+
+        syncedNames.push(c.name);
+        const adaptedCycles = isSource ? customWeekCycles : adaptWeekCyclesForClass(c, customWeekCycles);
+
         return {
           ...c,
-          customWeekCycles
+          customWeekCycles: adaptedCycles
         };
       })
     );
+
+    const cohortDisplayName = getCohortDisplayName(currentCohort);
     setSaveToast({
       show: true,
-      title: '周次周期已更新！',
-      desc: `已为班级【${classes.find(c => c.id === classId)?.name || ''}】自定义排期周期，考勤表头周次分组已实时调整并自动保存。`
+      title: '周次周期已同步更新！',
+      desc: syncedNames.length > 1
+        ? `已同步给【${cohortDisplayName}】全部 ${syncedNames.length} 个班级 (${syncedNames.join('、')})，第一周及全学期周次周期已自动对齐！`
+        : `已为班级【${sourceClass.name}】自定义排期周期，考勤表头周次分组已实时调整并自动保存。`
     });
-    setTimeout(() => setSaveToast(null), 3500);
+    setTimeout(() => setSaveToast(null), 4000);
   };
 
   // 11.5 手动添加或删除课时 (支持多上了添加课时、少上了删除课时，考勤扣分规则完全不变)
@@ -1530,6 +1556,8 @@ export default function App() {
             isJustSaved={isJustSaved}
             onSortClassStudentsAZ={() => handleSortClassStudentsAZ(currentClass.id)}
             onOpenAvatarPicker={stu => setSelectedStudentForAvatarPicker(stu)}
+            allClasses={classes}
+            onUpdateClassWeekCycles={handleUpdateClassWeekCycles}
           />
         )}
 

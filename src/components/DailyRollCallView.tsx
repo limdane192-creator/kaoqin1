@@ -34,7 +34,8 @@ import {
 } from 'lucide-react';
 import { CuteAttendanceCat } from './CuteIllustrations';
 import { CuteCalendarPicker, CuteDatePickerInput } from './CuteCalendarPicker';
-import { ClassRoom, Student, AttendanceStatus, SessionMode } from '../types';
+import { CustomWeekCycleModal } from './CustomWeekCycleModal';
+import { ClassRoom, Student, AttendanceStatus, SessionMode, WeekCycleConfig } from '../types';
 import { compareStudentNamesAZ } from '../utils/calculations';
 import { getWeekdayName } from '../utils/scheduleHelper';
 import { StudentAvatarBadge } from '../utils/avatarHelper';
@@ -65,6 +66,8 @@ interface DailyRollCallViewProps {
   onSortClassStudentsAZ?: () => void;
   onUpdateSessionConfig?: (day: number, date: string, mode: SessionMode) => void;
   onOpenAvatarPicker?: (student: Student) => void;
+  allClasses?: ClassRoom[];
+  onUpdateClassWeekCycles?: (classId: string, cycles: WeekCycleConfig[], syncToCohort?: boolean) => void;
 }
 
 export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
@@ -78,9 +81,12 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
   isJustSaved,
   onSortClassStudentsAZ,
   onUpdateSessionConfig,
-  onOpenAvatarPicker
+  onOpenAvatarPicker,
+  allClasses = [],
+  onUpdateClassWeekCycles
 }) => {
   const totalSessions = currentClass.totalSessions || 30;
+  const [isCycleModalOpen, setIsCycleModalOpen] = useState(false);
 
   // 智能教学周期设置 (周一/周三 -> 3天/周，周四/周五 -> 2天/周，10周总览)
   const defaultSessionsPerWeek = useMemo(() => {
@@ -776,6 +782,18 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold border border-blue-200/60">
                   当前设定：每周 {sessionsPerWeek} 天 · 共 {weekCycles.length} 周 ({totalSessions} 课时)
                 </span>
+                <button
+                  type="button"
+                  onClick={() => setIsCycleModalOpen(true)}
+                  className="px-2 py-0.5 rounded-full bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-[10px] border border-amber-300 transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
+                  title="调整周次周期（可设置第一周2天或1天，同课群自动同步）"
+                >
+                  <CalendarRange className="w-3 h-3 text-amber-700" />
+                  <span>调整周次周期 (图2)</span>
+                  {currentClass.customWeekCycles && currentClass.customWeekCycles.length > 0 && (
+                    <span className="bg-amber-400 text-amber-950 px-1 rounded-full text-[9px] font-black">已同步</span>
+                  )}
+                </button>
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5">
                 {currentClass.schedule.includes('周一/周三') || sessionsPerWeek === 3
@@ -1642,6 +1660,19 @@ export const DailyRollCallView: React.FC<DailyRollCallViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* 自定义教学周次周期划分弹窗 (图2：自由设置1天/2天/3天/5天，支持同课群自动同步) */}
+      <CustomWeekCycleModal
+        isOpen={isCycleModalOpen}
+        onClose={() => setIsCycleModalOpen(false)}
+        currentClass={currentClass}
+        allClasses={allClasses}
+        onSaveCustomWeekCycles={(classId, cycles, syncToCohort) => {
+          if (onUpdateClassWeekCycles) {
+            onUpdateClassWeekCycles(classId, cycles, syncToCohort);
+          }
+        }}
+      />
     </div>
   );
 };
