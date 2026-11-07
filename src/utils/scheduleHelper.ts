@@ -157,3 +157,109 @@ export function calculateNextSessionDate(
 
   return formatShortDate(next);
 }
+
+/**
+ * 获取教学里程碑/重要考试展示标签 (如 "小测", "期中考试", "口语考试", "期末考试")
+ */
+export function getSessionMilestoneLabel(
+  milestone?: { type?: string; label?: string } | string
+): string {
+  if (!milestone) return '';
+  if (typeof milestone === 'string') return milestone;
+  return milestone.label || '';
+}
+
+/**
+ * 判断班级归属的上课时间周期组 (Cohort)
+ * - 周一到周三班群 (MW)
+ * - 周四到周五班群 (TF)
+ * - 周末班群 (Weekend)
+ */
+export type ScheduleCohortType = 'mw' | 'tf' | 'weekend' | 'other';
+
+export function getScheduleCohort(schedule = '', className = ''): ScheduleCohortType {
+  const combined = `${schedule} ${className}`.toLowerCase();
+  if (
+    combined.includes('mw') ||
+    (combined.includes('周一') && combined.includes('周三')) ||
+    combined.includes('周一到周三') ||
+    combined.includes('周一至周三') ||
+    combined.includes('周一和周三') ||
+    combined.includes('周一、周三')
+  ) {
+    return 'mw';
+  }
+  if (
+    combined.includes('tf') ||
+    (combined.includes('周四') && combined.includes('周五')) ||
+    combined.includes('周四到周五') ||
+    combined.includes('周四至周五') ||
+    combined.includes('周四和周五') ||
+    combined.includes('周四、周五') ||
+    (combined.includes('周二') && combined.includes('周五'))
+  ) {
+    return 'tf';
+  }
+  if (
+    combined.includes('周六') ||
+    combined.includes('周日') ||
+    combined.includes('周末') ||
+    combined.includes('sat') ||
+    combined.includes('sun')
+  ) {
+    return 'weekend';
+  }
+  return 'other';
+}
+
+export function getCohortDisplayName(cohort: ScheduleCohortType): string {
+  switch (cohort) {
+    case 'mw':
+      return '周一至周三课群 (Mon-Wed)';
+    case 'tf':
+      return '周四至周五课群 (Thu-Fri)';
+    case 'weekend':
+      return '周末班群 (Sat/Sun)';
+    default:
+      return '独立排期班级';
+  }
+}
+
+/**
+ * 依据课时总数生成教学推荐的重要考试分布 (小测、期中考试、口语考试、期末考试)
+ */
+export function getDefaultMilestonesForSessions(
+  totalSessions = 30
+): Record<number, { type: 'quiz' | 'midterm' | 'oral' | 'final'; label: string }> {
+  if (totalSessions >= 28) {
+    // 30课标准排期
+    return {
+      8: { type: 'quiz', label: '小测一' },
+      15: { type: 'midterm', label: '期中考试' },
+      22: { type: 'quiz', label: '小测二' },
+      27: { type: 'oral', label: '口语考试' },
+      [totalSessions]: { type: 'final', label: '期末考试' }
+    };
+  }
+  if (totalSessions >= 20) {
+    // 20~24课排期
+    const mid = Math.round(totalSessions * 0.5);
+    const quiz = Math.round(totalSessions * 0.3);
+    const oral = Math.round(totalSessions * 0.85);
+    return {
+      [quiz]: { type: 'quiz', label: '小测一' },
+      [mid]: { type: 'midterm', label: '期中考试' },
+      [oral]: { type: 'oral', label: '口语考试' },
+      [totalSessions]: { type: 'final', label: '期末考试' }
+    };
+  }
+  // 短学期 / 16课
+  const mid = Math.round(totalSessions * 0.5);
+  const oral = Math.max(1, totalSessions - 2);
+  return {
+    4: { type: 'quiz', label: '小测' },
+    [mid]: { type: 'midterm', label: '期中考试' },
+    [oral]: { type: 'oral', label: '口语考试' },
+    [totalSessions]: { type: 'final', label: '期末考试' }
+  };
+}

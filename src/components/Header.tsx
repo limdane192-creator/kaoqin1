@@ -171,45 +171,19 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Right: Actions Bar */}
           <div className="flex items-center gap-2 shrink-0">
-            {/* Save Data Button */}
-            {onSaveData && (
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={onSaveData}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs border ${
-                    isJustSaved
-                      ? 'bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-400 ring-2 ring-emerald-200'
-                      : 'bg-amber-500 hover:bg-amber-600 text-white border-amber-400 shadow-amber-500/20 active:scale-98'
-                  }`}
-                  title="立即将所有班级、考勤、成绩与作业保存至浏览器本地"
-                >
-                  {isJustSaved ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-white animate-in zoom-in-75 duration-150" />
-                      <span>已保存 ✨</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-3.5 h-3.5" />
-                      <span>保存数据 💾</span>
-                    </>
-                  )}
-                </button>
-
-                {lastSavedTime && (
-                  <span
-                    className="hidden xl:inline-flex items-center gap-1 text-[11px] text-slate-400 font-mono"
-                    title={`最后确认保存：${lastSavedTime.toLocaleTimeString()}`}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                    <span>
-                      {lastSavedTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </span>
-                )}
-              </div>
-            )}
+            {/* 实时自动保存指示徽章 (满足用户要求：直接去掉手动保存按钮，修改或添加直接自动实时保存) */}
+            <div
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl shadow-2xs select-none"
+              title="实时自动保存已启用：您在网页上的任何录入与修改，均已即刻自动存入本地，无需重复手动点击保存，永不丢失！"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>已自动保存</span>
+              {lastSavedTime && (
+                <span className="hidden sm:inline text-[10px] text-emerald-600 font-mono opacity-80">
+                  {lastSavedTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
 
             {/* Standard Excel 1.Excel.xlsx Export */}
             {onExportStandardExcel && (

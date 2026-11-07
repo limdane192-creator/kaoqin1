@@ -47,9 +47,17 @@ import {
   StudentScores,
   StudentEvaluation,
   BehaviorNote,
-  TeacherJournalEntry
+  TeacherJournalEntry,
+  SessionMilestone
 } from './types';
-import { parseWeekdaysFromSchedule, calculateNextSessionDate } from './utils/scheduleHelper';
+import {
+  parseWeekdaysFromSchedule,
+  calculateNextSessionDate,
+  getScheduleCohort,
+  getCohortDisplayName,
+  getDefaultMilestonesForSessions,
+  ScheduleCohortType
+} from './utils/scheduleHelper';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ClassSelector } from './components/ClassSelector';
@@ -196,7 +204,30 @@ export default function App() {
     }
   }, []);
 
+  // 确保班级已具有重要考试与教学节点（小测、期中、口语、期末等，红字高亮显示）
+  useEffect(() => {
+    setClasses(prev => {
+      let modified = false;
+      const updated = prev.map(c => {
+        if (!c.sessionMilestones || Object.keys(c.sessionMilestones).length === 0) {
+          modified = true;
+          return {
+            ...c,
+            sessionMilestones: getDefaultMilestonesForSessions(c.totalSessions || 30)
+          };
+        }
+        return c;
+      });
+      return modified ? updated : prev;
+    });
+  }, []);
+
   // Sync state to LocalStorage
+  useEffect(() => {
+    saveSemesters(semesters);
+    setLastSavedTime(new Date());
+  }, [semesters]);
+
   useEffect(() => {
     saveSemesters(semesters);
     setLastSavedTime(new Date());
@@ -747,32 +778,116 @@ export default function App() {
     setTimeout(() => setSaveToast(null), 5000);
   };
 
-  // 10. 更新课时日期与线上/线下形式
-  const handleUpdateSessionConfig = (day: number, date: string, mode: SessionMode) => {
+  // 10. 更新课时日期、线上/线下形式以及重要考试标记 (支持同周期班级一键同步)
+  const handleUpdateSessionConfig = (
+    day: number,
+    date: string,
+    mode: SessionMode,
+    milestone?: SessionMilestone | string,
+    syncToCohort?: boolean
+  ) => {
+    const currentCohort = getScheduleCohort(currentClass.schedule, currentClass.name);
     setClasses(prev =>
       prev.map(c => {
-        if (c.id !== currentClass.id) return c;
+        const isCurrent = c.id === currentClass.id;
+        const isSameCohort = syncToCohort && getScheduleCohort(c.schedule, c.name) === currentCohort && currentCohort !== 'other';
+        if (!isCurrent && !isSameCohort) return c;
+
+        const nextMilestones = { ...(c.sessionMilestones || {}) };
+        if (milestone !== undefined) {
+          if (milestone === '' || (typeof milestone === 'object' && !milestone.label)) {
+            delete nextMilestones[day];
+          } else {
+            nextMilestones[day] = milestone;
+          }
+        }
+
         return {
           ...c,
           sessionDates: { ...(c.sessionDates || {}), [day]: date },
-          sessionModes: { ...(c.sessionModes || {}), [day]: mode }
+          sessionModes: { ...(c.sessionModes || {}), [day]: mode },
+          sessionMilestones: nextMilestones
         };
       })
     );
   };
 
-  // 11. 批量更新课时排期与形式
+  // 11. 批量更新课时排期、形式与重要考试标记 (支持同周期班级一键同步)
   const handleBatchUpdateSessions = (
     dates: Record<number, string>,
-    modes: Record<number, SessionMode>
+    modes: Record<number, SessionMode>,
+    milestones?: Record<number, SessionMilestone | string>,
+    syncToCohort?: boolean
   ) => {
+    const currentCohort = getScheduleCohort(currentClass.schedule, currentClass.name);
     setClasses(prev =>
       prev.map(c => {
-        if (c.id !== currentClass.id) return c;
+        const isCurrent = c.id === currentClass.id;
+        const isSameCohort = syncToCohort && getScheduleCohort(c.schedule, c.name) === currentCohort && currentCohort !== 'other';
+        if (!isCurrent && !isSameCohort) return c;
+
         return {
           ...c,
           sessionDates: { ...(c.sessionDates || {}), ...dates },
-          sessionModes: { ...(c.sessionModes || {}), ...modes }
+          sessionModes: { ...(c.sessionModes || {}), ...modes },
+          sessionMilestones: milestones ? { ...(c.sessionMilestones || {}), ...milestones } : c.sessionMilestones
+        };
+      })
+    );
+  };
+
+  // 11.2 同周期班级排期与大考一键全量同步 (周一至周三课群 / 周四至周五课群)
+  const handleSyncCohortSchedules = (
+    sourceClassId: string,
+    targetCohort: ScheduleCohortType
+  ) => {
+    const sourceClass = classes.find(c => c.id === sourceClassId);
+    if (!sourceClass) return;
+
+    setClasses(prev =>
+      prev.map(c => {
+        if (c.id === sourceClassId) return c;
+        if (getScheduleCohort(c.schedule, c.name) !== targetCohort) return c;
+
+        return {
+          ...c,
+          sessionDates: { ...(sourceClass.sessionDates || {}) },
+          sessionModes: { ...(sourceClass.sessionModes || {}) },
+          sessionMilestones: { ...(sourceClass.sessionMilestones || {}) }
+        };
+      })
+    );
+
+    const cohortName = getCohortDisplayName(targetCohort);
+    setSaveToast({
+      show: true,
+      title: '同周期排期与大考已全部同步！',
+      desc: `已成功将【${sourceClass.name}】的课时公历日期、线上/线下模式及重要考试（期中、小测、口语、期末）同步至所有【${cohortName}】班级！`
+    });
+    setTimeout(() => setSaveToast(null), 4500);
+  };
+
+  // 11.3 更新班级上课进度 (今天要教到哪一天、教学内容及各课时进度规划)
+  const handleUpdateTeachingProgress = (
+    classId: string,
+    updates: {
+      currentTeachingDay?: number;
+      currentTeachingTopic?: string;
+      sessionProgress?: Record<number, string>;
+    }
+  ) => {
+    setClasses(prev =>
+      prev.map(c => {
+        if (c.id !== classId) return c;
+        const nextSessionProgress = updates.sessionProgress !== undefined
+          ? { ...(c.sessionProgress || {}), ...updates.sessionProgress }
+          : c.sessionProgress;
+
+        return {
+          ...c,
+          currentTeachingDay: updates.currentTeachingDay !== undefined ? updates.currentTeachingDay : c.currentTeachingDay,
+          currentTeachingTopic: updates.currentTeachingTopic !== undefined ? updates.currentTeachingTopic : c.currentTeachingTopic,
+          sessionProgress: nextSessionProgress
         };
       })
     );
@@ -1092,16 +1207,32 @@ export default function App() {
   ) => {
     if (restoredSemesters && restoredSemesters.length > 0) {
       setSemesters(restoredSemesters);
+      saveSemesters(restoredSemesters);
     }
     setClasses(restoredClasses);
+    saveClasses(restoredClasses);
+
     setStudents(restoredStudents);
+    saveStudents(restoredStudents);
+
     setAssignments(restoredAssignments);
+    saveAssignments(restoredAssignments);
+
     if (restoredClasses[0]) {
       setSelectedClassId(restoredClasses[0].id);
+      saveSelectedClassId(restoredClasses[0].id);
       if (restoredClasses[0].semesterId) {
         setSelectedSemesterId(restoredClasses[0].semesterId);
+        saveSelectedSemesterId(restoredClasses[0].semesterId);
       }
     }
+    setLastSavedTime(new Date());
+    setSaveToast({
+      show: true,
+      title: '🎉 备份数据已成功恢复！',
+      desc: `已恢复全部 ${restoredClasses.length} 个班级、${restoredStudents.length} 名学生、考勤排期与成绩，数据已实时保存。`
+    });
+    setTimeout(() => setSaveToast(null), 4000);
   };
 
   // 16. 教师工作手记管理
@@ -1402,6 +1533,9 @@ export default function App() {
             onSaveData={handleManualSave}
             isJustSaved={isJustSaved}
             onSortClassStudentsAZ={() => handleSortClassStudentsAZ(currentClass.id)}
+            allClasses={classes}
+            onSyncCohortSchedules={handleSyncCohortSchedules}
+            onUpdateTeachingProgress={handleUpdateTeachingProgress}
           />
         )}
 

@@ -118,6 +118,16 @@ export interface Assignment {
 
 export type SessionMode = 'offline' | 'online'; // 线下上课 | 线上上课
 
+// 重要考试与教学里程碑类型 (期中、小测、期末、口语等)
+export type SessionMilestoneType = 'quiz' | 'midterm' | 'oral' | 'final' | 'custom' | '';
+
+export interface SessionMilestone {
+  type: SessionMilestoneType; // 'quiz': 小测, 'midterm': 期中考试, 'oral': 口语考试, 'final': 期末考试, 'custom': 自定义
+  label: string; // 显示文本，例如 "小测", "期中考试", "口语考试", "期末考试"
+  color?: string; // 默认红色/玫瑰色
+  note?: string; // 考试范围或备注
+}
+
 export interface Semester {
   id: string; // e.g. "sem_48", "sem_49"
   name: string; // e.g. "48学期", "49学期"
@@ -139,6 +149,10 @@ export interface ClassRoom {
   totalHwTarget?: number; // 本学期作业计划总次数 (15-20次之间自由设定，默认20次)
   sessionDates: Record<number, string>; // 第几天对应的公历日期，如 {1: "08/24", 2: "08/25"}
   sessionModes?: Record<number, SessionMode>; // 第几天上课形式：'offline' 线下 | 'online' 线上
+  sessionMilestones?: Record<number, SessionMilestone | string>; // 第几天重要考试/重要日期标记，如 {8: "小测", 15: "期中考试", 27: "口语考试", 30: "期末考试"}
+  currentTeachingDay?: number; // 今天要教到哪一天(第几课)，如第 6 课
+  currentTeachingTopic?: string; // 今天具体教学进度/授课内容，如 "第3单元 课文与语法操练"
+  sessionProgress?: Record<number, string>; // 各课时的教学大纲进度规划，如 { 1: "拼音声母与声调", 2: "第一单元课文", 3: "课后综合练习" }
   colorTheme?: string;
 }
 

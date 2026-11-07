@@ -228,23 +228,48 @@ export function exportBackupJSON(
 
 export function importBackupJSON(jsonStr: string) {
   try {
-    const data = JSON.parse(jsonStr);
-    if (data.classes && Array.isArray(data.classes) && data.students && Array.isArray(data.students)) {
-      if (data.semesters && Array.isArray(data.semesters)) {
-        saveSemesters(data.semesters);
+    const raw = typeof jsonStr === 'string' ? jsonStr.trim() : '';
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+
+    // Support both root object with classes/students or nested structures
+    const target = data.data || data.backup || data;
+
+    const classes = Array.isArray(target.classes) ? target.classes : null;
+    const students = Array.isArray(target.students) ? target.students : null;
+    const assignments = Array.isArray(target.assignments) ? target.assignments : [];
+    const journal = Array.isArray(target.journalEntries)
+      ? target.journalEntries
+      : Array.isArray(target.journal)
+      ? target.journal
+      : [];
+    const semesters = Array.isArray(target.semesters) ? target.semesters : initialSemesters;
+
+    if (classes && classes.length > 0 && students) {
+      saveClasses(classes);
+      saveStudents(students);
+      saveAssignments(assignments);
+      if (journal.length > 0) {
+        saveJournalEntries(journal);
       }
-      saveClasses(data.classes);
-      saveStudents(data.students);
-      saveAssignments(data.assignments || []);
-      if (data.journal && Array.isArray(data.journal)) {
-        saveJournalEntries(data.journal);
+      if (semesters && semesters.length > 0) {
+        saveSemesters(semesters);
       }
+      if (target.selectedClassId) {
+        saveSelectedClassId(target.selectedClassId);
+      }
+      if (target.selectedSemesterId) {
+        saveSelectedSemesterId(target.selectedSemesterId);
+      }
+
       return {
-        semesters: data.semesters || initialSemesters,
-        classes: data.classes,
-        students: data.students,
-        assignments: data.assignments || [],
-        journal: data.journal || []
+        semesters,
+        classes,
+        students,
+        assignments,
+        journal,
+        selectedClassId: target.selectedClassId,
+        selectedSemesterId: target.selectedSemesterId
       };
     }
   } catch (e) {

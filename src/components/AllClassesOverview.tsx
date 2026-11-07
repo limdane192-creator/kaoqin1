@@ -672,6 +672,22 @@ export const AllClassesOverview: React.FC<AllClassesOverviewProps> = ({
                       )}
                     </div>
 
+                    {/* 上课进度指标 */}
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                      <span className="text-slate-500 flex items-center gap-1">
+                        <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+                        <span>上课进度:</span>
+                      </span>
+                      <span className="font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                        教到第 {c.currentTeachingDay || 1} 课 {c.sessionDates?.[c.currentTeachingDay || 1] ? `(${c.sessionDates[c.currentTeachingDay || 1]})` : ''}
+                      </span>
+                    </div>
+                    {c.currentTeachingTopic && (
+                      <div className="text-[10px] text-slate-600 truncate bg-slate-50 px-2 py-1 rounded" title={c.currentTeachingTopic}>
+                        📖 {c.currentTeachingTopic}
+                      </div>
+                    )}
+
                     {/* 48小时预警标识 */}
                     {classUrgentHwCount > 0 && (
                       <div className="text-[11px] font-bold text-orange-950 bg-orange-100/90 border border-orange-300 p-1.5 rounded-xl flex items-center gap-1 animate-pulse">

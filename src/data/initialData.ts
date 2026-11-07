@@ -28,6 +28,56 @@ export const defaultSessionModes: Record<number, 'offline' | 'online'> = {
   26: 'offline', 27: 'offline', 28: 'offline', 29: 'offline', 30: 'offline'
 };
 
+// 预设重要考试与大考节点 (小测、期中考试、口语考试、期末考试)
+export const defaultSessionMilestones: Record<number, string> = {
+  8: '小测一',
+  15: '期中考试',
+  22: '小测二',
+  27: '口语考试',
+  30: '期末考试'
+};
+
+export const defaultTfSessionMilestones: Record<number, string> = {
+  6: '小测一',
+  12: '期中考试',
+  18: '口语考试',
+  20: '期末考试'
+};
+
+// 预设全学期 1~30 课标准教学进度大纲 (方便老师快速复制或对照教学)
+export const defaultSessionProgress: Record<number, string> = {
+  1: '第一单元 拼音声母与单韵母发音',
+  2: '第一单元 复韵母与四声声调操练',
+  3: '第一课 《你好》 课文生词与打招呼问候',
+  4: '第一课 课堂情境角色扮演与练习册P5',
+  5: '第二课 《谢谢你》 礼貌用语与基础句型',
+  6: '第二课 拼音拼读过关与听力小练习',
+  7: '第三课 《你叫什么名字》 自我介绍与姓名',
+  8: '第三课 小测一（拼音与前三课生词听写）',
+  9: '第四课 《她是我的中文老师》 人物指认与代词',
+  10: '第四课 课堂提问与家庭成员扩展词汇',
+  11: '第五课 《她去哪儿》 动词“去”与地点词汇',
+  12: '第五课 校园设施问路情景操练',
+  13: '第六课 《我们都是留学生》 国籍与文化交流',
+  14: '第六课 综合复习与期中考前冲刺备战',
+  15: '期中考试（前六课综合测试·卷面笔试）',
+  16: '期中试卷深入讲评与错题逐题订正',
+  17: '第七课 《你认识他吗》 动词“认识”与定语“的”',
+  18: '第七课 课文角色对话朗读与作业讲评',
+  19: '第八课 《今天星期几》 日期与时间表达法',
+  20: '第八课 制作个人一周作息表并进行展示',
+  21: '第九课 《现在几点》 钟点表述与日常生活动词',
+  22: '第九课 小测二（时间表达与生活对话听写）',
+  23: '第十课 《这件衣服多少钱》 购物买卖与数字表达',
+  24: '第十课 课堂模拟市场买卖角色互动',
+  25: '第十一课 《你喜欢吃什么》 中国传统美食与饮食习惯',
+  26: '第十一课 菜单点餐对话演练与口语准备',
+  27: '口语考试（一对一日常对话与命题表达）',
+  28: '全学期重点语法与高频错词总串讲',
+  29: '期末模拟模考训练与结课答疑',
+  30: '期末考试（全学期综合结课考试）'
+};
+
 export const initialClasses: ClassRoom[] = [
   {
     id: 'c_mw89',
@@ -40,6 +90,10 @@ export const initialClasses: ClassRoom[] = [
     totalSessions: 30,
     sessionDates: defaultSessionDates,
     sessionModes: defaultSessionModes,
+    sessionMilestones: defaultSessionMilestones,
+    currentTeachingDay: 1,
+    currentTeachingTopic: '第一单元 拼音声母与单韵母发音',
+    sessionProgress: defaultSessionProgress,
     colorTheme: 'blue'
   },
   {
@@ -53,32 +107,44 @@ export const initialClasses: ClassRoom[] = [
     totalSessions: 30,
     sessionDates: defaultSessionDates,
     sessionModes: defaultSessionModes,
+    sessionMilestones: defaultSessionMilestones,
+    currentTeachingDay: 1,
+    currentTeachingTopic: '第一单元 拼音声母与单韵母发音',
+    sessionProgress: defaultSessionProgress,
     colorTheme: 'emerald'
   },
   {
     id: 'c_tf57',
     name: 'TF5-7',
     code: 'CHN-201',
-    schedule: '周二/周五 17:00 - 19:00',
+    schedule: '周四/周五 13:30 - 15:00',
     room: '明德楼 B-105',
     semesterId: 'sem_48',
     semester: '48学期',
     totalSessions: 21,
     sessionDates: defaultSessionDates,
     sessionModes: defaultSessionModes,
+    sessionMilestones: defaultTfSessionMilestones,
+    currentTeachingDay: 1,
+    currentTeachingTopic: '第一单元 拼音声母与单韵母发音',
+    sessionProgress: defaultSessionProgress,
     colorTheme: 'violet'
   },
   {
     id: 'c_tf78',
     name: 'TF7-8',
     code: 'CHN-202',
-    schedule: '周二/周五 19:15 - 20:45',
+    schedule: '周四/周五 15:15 - 16:45',
     room: '明德楼 B-107',
     semesterId: 'sem_48',
     semester: '48学期',
     totalSessions: 24,
     sessionDates: defaultSessionDates,
     sessionModes: defaultSessionModes,
+    sessionMilestones: defaultTfSessionMilestones,
+    currentTeachingDay: 1,
+    currentTeachingTopic: '第一单元 拼音声母与单韵母发音',
+    sessionProgress: defaultSessionProgress,
     colorTheme: 'amber'
   },
   {
