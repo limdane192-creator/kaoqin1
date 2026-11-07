@@ -45,12 +45,23 @@ export function parseFlexibleDate(dateStr: string, defaultYear = new Date().getF
   if (!dateStr || !dateStr.trim()) return null;
   const str = dateStr.trim();
 
-  // 1. 匹配 YYYY-MM-DD 或 YYYY/MM/DD
+  // 1. 匹配 YYYY-MM-DD 或 YYYY/MM/DD 或 YYYY.MM.DD
   const ymdMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
   if (ymdMatch) {
     const y = parseInt(ymdMatch[1], 10);
     const m = parseInt(ymdMatch[2], 10) - 1;
     const d = parseInt(ymdMatch[3], 10);
+    const date = new Date(y, m, d);
+    return isNaN(date.getTime()) ? null : date;
+  }
+
+  // 1b. 匹配 YY-MM-DD 或 YY/MM/DD (例如 27-03-15)
+  const shortYmdMatch = str.match(/^(\d{2})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (shortYmdMatch) {
+    const shortY = parseInt(shortYmdMatch[1], 10);
+    const y = shortY < 70 ? 2000 + shortY : 1900 + shortY;
+    const m = parseInt(shortYmdMatch[2], 10) - 1;
+    const d = parseInt(shortYmdMatch[3], 10);
     const date = new Date(y, m, d);
     return isNaN(date.getTime()) ? null : date;
   }
@@ -79,6 +90,16 @@ export function formatShortDate(d: Date): string {
 }
 
 /**
+ * 格式化为标准 YYYY-MM-DD
+ */
+export function formatFullDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
  * 获取星期几中文简称 (支持 Date 对象或任意日期字符串)
  */
 export function getWeekdayName(d: Date | string | null | undefined): string {
@@ -93,7 +114,8 @@ export function getWeekdayName(d: Date | string | null | undefined): string {
 
 /**
  * 自动排课算法：从起始课时开始，按班级上课星期规律顺延排满至总课时
- * 例如：起始课 11/7 (周五)，班级为周四/周五，排第2课为 11/13(周四)，第3课为 11/14(周五)...
+ * 例如：起始课 2027-03-02 (周二)，班级为周二/周四，排第2课为 2027-03-04 (周四)...
+ * 支持保留年份或月/日格式
  */
 export function autoGenerateSessionDates({
   fromDay = 1,
@@ -114,11 +136,15 @@ export function autoGenerateSessionDates({
   const startDate = parseFlexibleDate(startDateStr, baseYear);
   if (!startDate) return dates;
 
+  // 检查是否包含显式年份 (4位或2位)
+  const hadYear = /\b\d{4}\b/.test(startDateStr) || /^\d{2}[-/.]/.test(startDateStr.trim());
+  const formatFn = hadYear ? formatFullDate : formatShortDate;
+
   // 确保有效星期规律
   const activeWeekdays = weekdays.length > 0 ? weekdays : [startDate.getDay()];
 
   // 设置起始课日期
-  dates[fromDay] = formatShortDate(startDate);
+  dates[fromDay] = formatFn(startDate);
 
   let current = new Date(startDate.getTime());
 
@@ -128,7 +154,7 @@ export function autoGenerateSessionDates({
       current.setDate(current.getDate() + 1);
     } while (!activeWeekdays.includes(current.getDay()));
 
-    dates[day] = formatShortDate(current);
+    dates[day] = formatFn(current);
   }
 
   return dates;
@@ -148,6 +174,7 @@ export function calculateNextSessionDate(
     return formatShortDate(today);
   }
 
+  const hadYear = /\b\d{4}\b/.test(lastDateStr);
   const activeWeekdays = weekdays.length > 0 ? weekdays : [1, 3];
   const next = new Date(lastDate.getTime());
 
@@ -155,7 +182,7 @@ export function calculateNextSessionDate(
     next.setDate(next.getDate() + 1);
   } while (!activeWeekdays.includes(next.getDay()));
 
-  return formatShortDate(next);
+  return hadYear ? formatFullDate(next) : formatShortDate(next);
 }
 
 /**

@@ -1001,9 +1001,25 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                         第{day}课
                       </div>
 
-                      {/* 【表格日期放大一点】：明显加粗清晰展示 */}
+                      {/* 【表格日期放大一点】：明显加粗清晰展示 (支持2027年及未来年份醒目标识) */}
                       <div className="text-xs sm:text-[13px] font-black font-mono text-slate-900 tracking-tight my-0.5 leading-tight">
-                        {dateStr || '-'}
+                        {(() => {
+                          if (!dateStr) return '-';
+                          const ymdMatch = dateStr.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+                          if (ymdMatch) {
+                            return (
+                              <div className="flex flex-col items-center leading-none py-0.5">
+                                <span className="text-[9px] font-black text-amber-700 bg-amber-100/80 px-1 py-0.2 rounded border border-amber-300/80 leading-none scale-90 mb-0.5">
+                                  {ymdMatch[1]}年
+                                </span>
+                                <span className="text-xs sm:text-[13px] font-black font-mono text-slate-900">
+                                  {ymdMatch[2].padStart(2, '0')}/{ymdMatch[3].padStart(2, '0')}
+                                </span>
+                              </div>
+                            );
+                          }
+                          return dateStr;
+                        })()}
                       </div>
 
                       {/* 星期标签 */}

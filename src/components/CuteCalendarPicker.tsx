@@ -4,7 +4,17 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronUp, ChevronDown, Calendar as CalendarIcon, X } from 'lucide-react';
+import { 
+  ChevronUp, 
+  ChevronDown, 
+  ChevronLeft, 
+  ChevronRight, 
+  ChevronsLeft, 
+  ChevronsRight, 
+  Calendar as CalendarIcon, 
+  Sparkles,
+  RotateCcw
+} from 'lucide-react';
 import { parseFlexibleDate, formatShortDate, getWeekdayName } from '../utils/scheduleHelper';
 
 const MONTH_NAMES_EN = [
@@ -46,6 +56,27 @@ export const CuteCalendarPicker: React.FC<CuteCalendarPickerProps> = ({
 }) => {
   const parsedInitial = parseFlexibleDate(value);
   const now = new Date();
+  const baseCalendarYear = now.getFullYear();
+
+  // 支持从当前年份前2年直至未来15年以上 (例如 2024 ~ 2042)
+  const MIN_YEAR = 2024;
+  const MAX_YEAR = Math.max(2042, baseCalendarYear + 15);
+  const ALL_AVAILABLE_YEARS = Array.from(
+    { length: MAX_YEAR - MIN_YEAR + 1 },
+    (_, i) => MIN_YEAR + i
+  );
+
+  // 快捷年份按钮：今年、明年(2027)、后年(2028)、2029、2030、未来5年、未来10年、未来15年
+  const QUICK_YEARS = [
+    baseCalendarYear,
+    baseCalendarYear + 1,
+    baseCalendarYear + 2,
+    baseCalendarYear + 3,
+    baseCalendarYear + 4,
+    baseCalendarYear + 5,
+    baseCalendarYear + 10,
+    baseCalendarYear + 15
+  ].filter(y => y <= MAX_YEAR);
 
   // If value contains a 4-digit year, default format is YYYY-MM-DD
   const hasYear = /\b\d{4}\b/.test(value || '');
@@ -54,7 +85,7 @@ export const CuteCalendarPicker: React.FC<CuteCalendarPickerProps> = ({
   );
 
   const [currentYear, setCurrentYear] = useState<number>(
-    parsedInitial ? parsedInitial.getFullYear() : now.getFullYear()
+    parsedInitial ? parsedInitial.getFullYear() : baseCalendarYear
   );
   const [currentMonth, setCurrentMonth] = useState<number>(
     parsedInitial ? parsedInitial.getMonth() : now.getMonth()
@@ -69,14 +100,17 @@ export const CuteCalendarPicker: React.FC<CuteCalendarPickerProps> = ({
       if (parsed) {
         setCurrentYear(parsed.getFullYear());
         setCurrentMonth(parsed.getMonth());
+        if (parsed.getFullYear() !== baseCalendarYear) {
+          setOutputFormat('YYYY-MM-DD');
+        }
       }
     }
-  }, [value]);
+  }, [value, baseCalendarYear]);
 
   const handlePrevMonth = () => {
     if (currentMonth === 0) {
       setCurrentMonth(11);
-      setCurrentYear(prev => prev - 1);
+      setCurrentYear(prev => Math.max(MIN_YEAR, prev - 1));
     } else {
       setCurrentMonth(prev => prev - 1);
     }
@@ -85,14 +119,24 @@ export const CuteCalendarPicker: React.FC<CuteCalendarPickerProps> = ({
   const handleNextMonth = () => {
     if (currentMonth === 11) {
       setCurrentMonth(0);
-      setCurrentYear(prev => prev + 1);
+      setCurrentYear(prev => Math.min(MAX_YEAR, prev + 1));
     } else {
       setCurrentMonth(prev => prev + 1);
     }
   };
 
+  const handlePrevYear = () => {
+    setCurrentYear(prev => Math.max(MIN_YEAR, prev - 1));
+  };
+
+  const handleNextYear = () => {
+    setCurrentYear(prev => Math.min(MAX_YEAR, prev + 1));
+  };
+
   const handleSelectDate = (date: Date) => {
-    const formatted = formatSelectedDate(date, outputFormat);
+    // 若选择了非当前年份（如2027年及未来15年），强制保留完整年份格式，避免刷新丢失年份
+    const effectiveFormat = (currentYear !== baseCalendarYear) ? 'YYYY-MM-DD' : outputFormat;
+    const formatted = formatSelectedDate(date, effectiveFormat);
     onChange(formatted, date);
   };
 
@@ -113,13 +157,15 @@ export const CuteCalendarPicker: React.FC<CuteCalendarPickerProps> = ({
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    return fmt === 'YYYY-MM-DD' ? `${y}-${m}-${day}` : `${m}/${day}`;
+    // 如果年份不是基准年份，始终保留完整年份 YYYY-MM-DD
+    if (fmt === 'YYYY-MM-DD' || y !== baseCalendarYear) {
+      return `${y}-${m}-${day}`;
+    }
+    return `${m}/${day}`;
   }
 
   // Generate 42 cells (6 rows * 7 columns, Monday-first ISO week)
   const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
-  // getDay(): 0 is Sunday, 1 is Monday ... 6 is Saturday
-  // We want Monday = 0, Tuesday = 1, ..., Sunday = 6
   let startOffset = firstDayOfMonth.getDay() - 1;
   if (startOffset < 0) startOffset = 6; // Sunday becomes offset 6
 
@@ -183,70 +229,156 @@ export const CuteCalendarPicker: React.FC<CuteCalendarPickerProps> = ({
 
   return (
     <div
-      className={`bg-white rounded-xl shadow-lg border border-slate-200/90 p-3.5 select-none w-[270px] text-slate-800 ${className}`}
+      className={`bg-white rounded-xl shadow-xl border border-slate-200/95 p-3 select-none w-[284px] text-slate-800 ${className}`}
       onClick={e => e.stopPropagation()}
     >
-      {/* Header matching user image: "November 2026 ▾" and "↑" / "↓" */}
-      <div className="flex items-center justify-between mb-3 px-1">
-        <button
-          type="button"
-          onClick={() => setShowMonthYearPicker(!showMonthYearPicker)}
-          className="flex items-center gap-1 text-sm font-bold text-slate-900 hover:text-blue-600 transition-colors py-0.5 px-1 -ml-1 rounded hover:bg-slate-50 cursor-pointer"
-          title="点击切换年份或月份"
-        >
-          <span>
-            {MONTH_NAMES_EN[currentMonth]} {currentYear}
-          </span>
-          <span className="text-[10px] text-slate-500 font-normal ml-0.5">
-            ({MONTH_NAMES_CN[currentMonth]})
-          </span>
-          <span className="text-[11px] text-slate-500 font-normal">▾</span>
-        </button>
+      {/* 顶部主导航栏：支持点击抽屉、年份下拉切换、一键跳至2027年及未来15年 */}
+      <div className="flex items-center justify-between mb-2 px-0.5">
+        <div className="flex items-center gap-1.5">
+          {/* 年份快速下拉选择器 (带未来15年标识) */}
+          <select
+            value={currentYear}
+            onChange={(e) => {
+              const selectedY = Number(e.target.value);
+              setCurrentYear(selectedY);
+              if (selectedY !== baseCalendarYear) {
+                setOutputFormat('YYYY-MM-DD');
+              }
+            }}
+            className="text-xs font-black text-blue-900 bg-blue-50/80 hover:bg-blue-100/80 border border-blue-200 rounded px-1.5 py-1 cursor-pointer focus:outline-none transition-colors"
+            title="选择年份（支持至未来15年）"
+          >
+            {ALL_AVAILABLE_YEARS.map(y => {
+              const diff = y - baseCalendarYear;
+              let suffix = '';
+              if (diff === 0) suffix = ' (今年)';
+              else if (diff === 1) suffix = ' (明年2027)';
+              else if (diff === 2) suffix = ' (后年)';
+              else if (diff > 2) suffix = ` (+${diff}年)`;
+              return (
+                <option key={y} value={y}>
+                  {y}年{suffix}
+                </option>
+              );
+            })}
+          </select>
 
-        <div className="flex items-center gap-1">
+          {/* 月份切换按钮/下拉抽屉触发 */}
+          <button
+            type="button"
+            onClick={() => setShowMonthYearPicker(!showMonthYearPicker)}
+            className="flex items-center gap-0.5 text-xs font-bold text-slate-800 hover:text-blue-600 transition-colors py-1 px-1.5 rounded hover:bg-slate-100 cursor-pointer"
+            title="点击展开快捷年月面板"
+          >
+            <span>{MONTH_NAMES_EN[currentMonth]}</span>
+            <span className="text-[11px] text-slate-500 font-normal">
+              ({MONTH_NAMES_CN[currentMonth]})
+            </span>
+            <span className="text-[10px] text-slate-400">▾</span>
+          </button>
+        </div>
+
+        {/* 导航步进按钮群：同时具备【快速步进年】与【步进月】 */}
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={handlePrevYear}
+            disabled={currentYear <= MIN_YEAR}
+            className="w-5 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-400 hover:text-slate-800 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+            title="上一年 (-1年)"
+          >
+            <ChevronsLeft className="w-3.5 h-3.5" />
+          </button>
           <button
             type="button"
             onClick={handlePrevMonth}
-            className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+            className="w-5 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
             title="上一月"
           >
-            <ChevronUp className="w-4 h-4 stroke-[2.5]" />
+            <ChevronLeft className="w-3.5 h-3.5 stroke-[2.5]" />
           </button>
           <button
             type="button"
             onClick={handleNextMonth}
-            className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+            className="w-5 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
             title="下一月"
           >
-            <ChevronDown className="w-4 h-4 stroke-[2.5]" />
+            <ChevronRight className="w-3.5 h-3.5 stroke-[2.5]" />
+          </button>
+          <button
+            type="button"
+            onClick={handleNextYear}
+            disabled={currentYear >= MAX_YEAR}
+            className="w-5 h-6 flex items-center justify-center rounded hover:bg-blue-50 text-blue-600 hover:text-blue-800 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed font-bold"
+            title="下一年 (+1年，快速跨至2027年)"
+          >
+            <ChevronsRight className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {/* Quick Month/Year Dropdown Drawer */}
+      {/* 当处于未来年份（如2027年）时的明确状态提示标签 */}
+      {currentYear !== baseCalendarYear && (
+        <div className="mb-2 px-2 py-1 bg-amber-50 border border-amber-200/80 rounded-md flex items-center justify-between text-[11px] text-amber-900 animate-in fade-in">
+          <span className="font-bold flex items-center gap-1">
+            <Sparkles className="w-3 h-3 text-amber-600 shrink-0" />
+            已定格: {currentYear}年 ({currentYear > baseCalendarYear ? `未来+${currentYear - baseCalendarYear}年` : '历史年份'})
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setCurrentYear(baseCalendarYear);
+              setCurrentMonth(now.getMonth());
+            }}
+            className="text-[10px] text-blue-600 hover:underline flex items-center gap-0.5 cursor-pointer ml-1"
+            title="回退到今年"
+          >
+            <RotateCcw className="w-2.5 h-2.5" />
+            回到今年
+          </button>
+        </div>
+      )}
+
+      {/* Quick Month/Year Dropdown Drawer: 支持直达2027年及未来15年 */}
       {showMonthYearPicker && (
-        <div className="mb-3 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-2 animate-in fade-in">
-          <div className="flex items-center justify-between text-slate-600">
-            <span className="font-semibold text-[11px]">选择年份</span>
-            <div className="flex items-center gap-1">
-              {[currentYear - 1, currentYear, currentYear + 1].map(y => (
-                <button
-                  key={y}
-                  type="button"
-                  onClick={() => setCurrentYear(y)}
-                  className={`px-2 py-0.5 rounded text-[11px] cursor-pointer ${
-                    currentYear === y
-                      ? 'bg-blue-600 text-white font-bold'
-                      : 'bg-white border border-slate-200 hover:bg-slate-100 text-slate-700'
-                  }`}
-                >
-                  {y}
-                </button>
-              ))}
+        <div className="mb-2.5 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-2 animate-in fade-in duration-150">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-bold text-[11px] text-slate-700">快速选年份 (覆盖未来15年)</span>
+              <span className="text-[10px] text-slate-400">2024~{MAX_YEAR}</span>
+            </div>
+            {/* 常用快速年份胶囊 */}
+            <div className="flex flex-wrap gap-1">
+              {QUICK_YEARS.map(y => {
+                const isSelected = currentYear === y;
+                const is2027 = y === 2027;
+                return (
+                  <button
+                    key={y}
+                    type="button"
+                    onClick={() => {
+                      setCurrentYear(y);
+                      if (y !== baseCalendarYear) {
+                        setOutputFormat('YYYY-MM-DD');
+                      }
+                    }}
+                    className={`px-1.5 py-0.5 rounded text-[11px] font-mono cursor-pointer transition-all ${
+                      isSelected
+                        ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                        : is2027
+                        ? 'bg-amber-100 text-amber-900 font-bold border border-amber-300 hover:bg-amber-200'
+                        : 'bg-white border border-slate-200 hover:bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    {y}{y === 2027 ? '★27年' : y === baseCalendarYear ? '今年' : ''}
+                  </button>
+                );
+              })}
             </div>
           </div>
+
           <div>
-            <div className="font-semibold text-[11px] text-slate-600 mb-1">月份选择</div>
+            <div className="font-bold text-[11px] text-slate-700 mb-1">月份快速选择</div>
             <div className="grid grid-cols-4 gap-1">
               {MONTH_NAMES_CN.map((mCn, idx) => (
                 <button
@@ -351,15 +483,34 @@ export const CuteCalendarPicker: React.FC<CuteCalendarPickerProps> = ({
         </div>
       )}
 
-      {/* Bottom Footer: Clear (left) & Today (right) matching user screenshot */}
+      {/* Bottom Footer: Clear (left), Quick 2027 Jump (center), Today (right) */}
       <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between px-1">
         <button
           type="button"
           onClick={handleClear}
-          className="text-xs text-[#0066FF] hover:text-blue-800 font-medium cursor-pointer transition-colors hover:underline"
+          className="text-xs text-slate-500 hover:text-rose-600 font-medium cursor-pointer transition-colors"
         >
           Clear
         </button>
+
+        {currentYear !== 2027 ? (
+          <button
+            type="button"
+            onClick={() => {
+              setCurrentYear(2027);
+              setOutputFormat('YYYY-MM-DD');
+            }}
+            className="text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded cursor-pointer transition-colors"
+            title="一键直达2027年"
+          >
+            ★ 直达2027年
+          </button>
+        ) : (
+          <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+            2027年日历
+          </span>
+        )}
+
         <button
           type="button"
           onClick={handleToday}
