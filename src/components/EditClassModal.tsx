@@ -4,8 +4,9 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Trash2, AlertCircle, Building2, Calendar, Clock, BookOpen, UserPlus } from 'lucide-react';
+import { X, Save, Trash2, AlertCircle, Building2, Calendar, Clock, BookOpen, UserPlus, ShieldCheck } from 'lucide-react';
 import { ClassRoom, Semester } from '../types';
+import { isRDClass, isGCClass, getScheduleCohort } from '../utils/scheduleHelper';
 
 interface EditClassModalProps {
   isOpen: boolean;
@@ -143,9 +144,27 @@ export const EditClassModal: React.FC<EditClassModalProps> = ({
                 required
                 value={name}
                 onChange={e => setName(e.target.value)}
-                placeholder="例如: MW12-1 或 周六强化班"
+                placeholder="例如: RD-PRE 1 或 GCP1"
                 className="w-full text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
               />
+              {name.trim() && (() => {
+                const cohort = getScheduleCohort(schedule, name);
+                return (
+                  <div className="mt-1">
+                    {cohort === 'rd' ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                        <ShieldCheck className="w-3 h-3 text-amber-700" />
+                        已识别为 RD 课群 (周四至周五) · 与所有 RD 班互相同步
+                      </span>
+                    ) : cohort === 'gc' ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-200">
+                        <ShieldCheck className="w-3 h-3 text-blue-700" />
+                        已识别为 GC 课群 (周一至周三) · 与所有 GC 班互相同步
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })()}
             </div>
             <div>
               <label className="block font-semibold text-slate-700 mb-1">
@@ -201,24 +220,28 @@ export const EditClassModal: React.FC<EditClassModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  setSchedule('周一/周三 8:00 - 9:30');
-                  setTotalSessions(30);
+                  setSchedule('周四/周五 13:30 - 15:00');
+                  setTotalSessions(20);
                 }}
-                className="p-1.5 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded text-left text-slate-700 transition-colors cursor-pointer"
+                className="p-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded text-left text-amber-900 transition-colors cursor-pointer"
               >
-                <div className="font-semibold text-blue-900">周一/周三 8:00 - 9:30</div>
-                <div className="text-[10px] text-slate-500">10周共 30 课时</div>
+                <div className="font-bold text-amber-950 flex items-center gap-1">
+                  <span>🛡️ RD 课群 (周四/五)</span>
+                </div>
+                <div className="text-[10px] text-amber-700">周四/周五 13:30 · 20课时</div>
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  setSchedule('周四/周五 8:00 - 9:30');
-                  setTotalSessions(20);
+                  setSchedule('周一/周三 08:00 - 09:30');
+                  setTotalSessions(30);
                 }}
-                className="p-1.5 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded text-left text-slate-700 transition-colors cursor-pointer"
+                className="p-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded text-left text-blue-900 transition-colors cursor-pointer"
               >
-                <div className="font-semibold text-blue-900">周四/周五 8:00 - 9:30</div>
-                <div className="text-[10px] text-slate-500">10周共 20 课时</div>
+                <div className="font-bold text-blue-950 flex items-center gap-1">
+                  <span>🛡️ GC 课群 (周一/三)</span>
+                </div>
+                <div className="text-[10px] text-blue-700">周一/周三 8:00 · 30课时</div>
               </button>
               <button
                 type="button"

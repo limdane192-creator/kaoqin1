@@ -12,9 +12,14 @@ export const WEEKDAY_NAMES_CN = ['周日', '周一', '周二', '周三', '周四
 
 /**
  * 从上课时间安排字符串中提取每周上课的星期几 (0=周日, 1=周一, ..., 6=周六)
+ * 智能判定：RD 课群 (周四至周五) 默认解析为 [4, 5]，GC 课群 (周一至周三) 默认解析为 [1, 3]
  */
-export function parseWeekdaysFromSchedule(scheduleStr: string): number[] {
-  if (!scheduleStr) return [1, 3]; // 默认周一/周三
+export function parseWeekdaysFromSchedule(scheduleStr: string, className = ''): number[] {
+  const isRD = isRDClass(scheduleStr, className);
+
+  if (!scheduleStr || !scheduleStr.trim()) {
+    return isRD ? [4, 5] : [1, 3];
+  }
   const s = scheduleStr.trim();
   const set = new Set<number>();
 
@@ -35,7 +40,8 @@ export function parseWeekdaysFromSchedule(scheduleStr: string): number[] {
   if (s.includes('周日') || s.includes('周天') || s.includes('星期日') || s.includes('星期天') || /sun/i.test(s)) set.add(0);
 
   const arr = Array.from(set).sort((a, b) => a - b);
-  return arr.length > 0 ? arr : [1, 3];
+  if (arr.length > 0) return arr;
+  return isRD ? [4, 5] : [1, 3];
 }
 
 /**
@@ -202,50 +208,96 @@ export function getSessionMilestoneLabel(
  * - 周四到周五班群 (TF)
  * - 周末班群 (Weekend)
  */
-export type ScheduleCohortType = 'mw' | 'tf' | 'weekend' | 'other';
+/**
+ * 课群分组类型：
+ * - 'gc' (兼容 'mw'): GC 课群，周一到周三上课，所有 GC 班级互相自动同步排期与周期
+ * - 'rd' (兼容 'tf'): RD 课群，周四和周五上课，所有 RD 班级互相自动同步排期与周期
+ * - 'weekend': 周末班群 (周六/周日)
+ * - 'other': 独立排期班级 (不参与跨班同步)
+ * 
+ * ⚠️ 铁律：GC 与 RD 绝对物理隔离，禁止任何形式的交叉同步！
+ */
+export type ScheduleCohortType = 'gc' | 'rd' | 'mw' | 'tf' | 'weekend' | 'other';
 
+/**
+ * 获取班级对应的唯一课群类型 (最高原则：GC 开头的班级属 GC，RD 开头的班级属 RD，二者绝对互斥)
+ */
 export function getScheduleCohort(schedule = '', className = ''): ScheduleCohortType {
-  const combined = `${schedule} ${className}`.toLowerCase();
-  
-  // 1. 周一至周三课群 (包含 CG-PRE GCP1, GCP系列, MW, 周一/周三等)
-  if (
-    combined.includes('mw') ||
-    combined.includes('gcp') ||
-    combined.includes('gc-pre') ||
-    combined.includes('cg-pre') ||
-    (combined.includes('周一') && combined.includes('周三')) ||
-    combined.includes('周一到周三') ||
-    combined.includes('周一至周三') ||
-    combined.includes('周一和周三') ||
-    combined.includes('周一、周三') ||
-    (combined.includes('周一') && !combined.includes('周四') && !combined.includes('周五')) ||
-    (combined.includes('周三') && !combined.includes('周四') && !combined.includes('周五'))
-  ) {
-    return 'mw';
+  const name = (className || '').trim();
+  const nameLower = name.toLowerCase();
+  const schedLower = (schedule || '').toLowerCase().trim();
+
+  // 1. 核心铁律：前缀决定课群 (Prefix Priority)
+  // 任何以 RD 开头的班级 (如 RD-GCP1, RD-PRE 1, RD1, RD-GCP4, RD班, TF5-7 等)，绝对 100% 属于 RD 课群！
+  const isRDPrefix =
+    /^rd[\b\-_ \d]/i.test(nameLower) ||
+    /^rd$/i.test(nameLower) ||
+    /^tf[\b\-_ \d]/i.test(nameLower) ||
+    /^tf$/i.test(nameLower) ||
+    /^rd/i.test(nameLower) ||
+    /^tf/i.test(nameLower);
+
+  if (isRDPrefix) {
+    return 'rd';
   }
 
-  // 2. 周四至周五课群 (包含 TF, 周四/周五等)
-  if (
-    combined.includes('tf') ||
-    (combined.includes('周四') && combined.includes('周五')) ||
-    combined.includes('周四到周五') ||
-    combined.includes('周四至周五') ||
-    combined.includes('周四和周五') ||
-    combined.includes('周四、周五') ||
-    (combined.includes('周二') && combined.includes('周五')) ||
-    (combined.includes('周四') && !combined.includes('周一') && !combined.includes('周三')) ||
-    (combined.includes('周五') && !combined.includes('周一') && !combined.includes('周三'))
-  ) {
-    return 'tf';
+  // 任何以 GC, CG 或 MW 开头的班级 (如 GC-PRE GCP1, GC-GCP4, GCP1, GC1, MW8-9 等)，绝对 100% 属于 GC 课群！
+  const isGCPrefix =
+    /^(gc|cg|gcp|mw)[\b\-_ \d]/i.test(nameLower) ||
+    /^(gc|cg|gcp|mw)$/i.test(nameLower) ||
+    /^(gc|cg|mw)/i.test(nameLower);
+
+  if (isGCPrefix) {
+    return 'gc';
   }
 
-  // 3. 周末班群
+  // 2. 班级名称中明确包含独立单词/标识判定 (按出现位置最靠前者优先，防止混淆)
+  const rdIdx = nameLower.search(/\b(rd|rdp|tf)\b|rd-|tf-|rd班|tf班/i);
+  const gcIdx = nameLower.search(/\b(gc|cg|gcp|mw)\b|gc-|cg-|mw-|gc班|cg班|mw班/i);
+
+  if (rdIdx !== -1 && gcIdx !== -1) {
+    return rdIdx < gcIdx ? 'rd' : 'gc';
+  }
+  if (rdIdx !== -1) return 'rd';
+  if (gcIdx !== -1) return 'gc';
+
+  // 3. 次级判定：根据 schedule 星期安排判定 (周四/周五属于 RD，周一/周三属于 GC)
+  const isSchedRD =
+    schedLower.includes('周四') ||
+    schedLower.includes('周五') ||
+    schedLower.includes('礼拜四') ||
+    schedLower.includes('礼拜五') ||
+    schedLower.includes('星期四') ||
+    schedLower.includes('星期五') ||
+    schedLower.includes('tf') ||
+    schedLower.includes('thu') ||
+    schedLower.includes('fri');
+
+  const isSchedGC =
+    schedLower.includes('周一') ||
+    schedLower.includes('周二') ||
+    schedLower.includes('周三') ||
+    schedLower.includes('礼拜一') ||
+    schedLower.includes('礼拜二') ||
+    schedLower.includes('礼拜三') ||
+    schedLower.includes('星期一') ||
+    schedLower.includes('星期二') ||
+    schedLower.includes('星期三') ||
+    schedLower.includes('mw') ||
+    schedLower.includes('mon') ||
+    schedLower.includes('wed');
+
+  if (isSchedRD && !isSchedGC) return 'rd';
+  if (isSchedGC && !isSchedRD) return 'gc';
+
   if (
-    combined.includes('周六') ||
-    combined.includes('周日') ||
-    combined.includes('周末') ||
-    combined.includes('sat') ||
-    combined.includes('sun')
+    nameLower.includes('周六') ||
+    nameLower.includes('周日') ||
+    nameLower.includes('周末') ||
+    schedLower.includes('周六') ||
+    schedLower.includes('周日') ||
+    schedLower.includes('sat') ||
+    schedLower.includes('sun')
   ) {
     return 'weekend';
   }
@@ -253,17 +305,62 @@ export function getScheduleCohort(schedule = '', className = ''): ScheduleCohort
   return 'other';
 }
 
+/**
+ * 判断班级是否明确属于 RD 课群 (周四和周五)
+ * 与 GC 严格互斥，只要是 RD 课群就绝不是 GC 课群！
+ */
+export function isRDClass(schedule = '', className = ''): boolean {
+  return getScheduleCohort(schedule, className) === 'rd';
+}
+
+/**
+ * 判断班级是否明确属于 GC 课群 (周一到周三)
+ * 与 RD 严格互斥，只要是 GC 课群就绝不是 RD 课群！
+ */
+export function isGCClass(schedule = '', className = ''): boolean {
+  return getScheduleCohort(schedule, className) === 'gc';
+}
+
+/**
+ * 课群友好展示名称
+ */
 export function getCohortDisplayName(cohort: ScheduleCohortType): string {
   switch (cohort) {
+    case 'gc':
     case 'mw':
-      return '周一至周三课群 (Mon-Wed)';
+      return 'GC 课群 · 周一至周三班 (GC Mon-Wed)';
+    case 'rd':
     case 'tf':
-      return '周四至周五课群 (Thu-Fri)';
+      return 'RD 课群 · 周四至周五班 (RD Thu-Fri)';
     case 'weekend':
       return '周末班群 (Sat/Sun)';
     default:
-      return '独立排期班级';
+      return '独立排期班级 (不跨班同步)';
   }
+}
+
+/**
+ * 严格判断两个班级是否属于同一个可同步课群
+ * 🌟 铁律保证：
+ * - GC 开头的班级只能和另一个 GC 开头的班级同步日期和周期！
+ * - RD 开头的班级只能和另一个 RD 开头的班级同步日期和周期！
+ * - GC 和 RD 绝对物理隔离，禁止任何形式的交叉同步！
+ */
+export function areClassesInSameCohort(
+  classA?: { schedule?: string; name?: string } | null,
+  classB?: { schedule?: string; name?: string } | null
+): boolean {
+  if (!classA || !classB) return false;
+
+  const cohortA = getScheduleCohort(classA.schedule, classA.name);
+  const cohortB = getScheduleCohort(classB.schedule, classB.name);
+
+  // 独立班级不参与同步
+  if (cohortA === 'other' || cohortB === 'other') return false;
+
+  // 严格互斥：只有完全相同的课群类型才能同步！
+  // GC 班级只能同步 GC 班级，RD 班级只能同步 RD 班级，绝不交叉同步！
+  return cohortA === cohortB;
 }
 
 /**
@@ -296,9 +393,10 @@ export function adaptWeekCyclesForClass(
     currentDay = endDay + 1;
   });
 
-  // 若源周期天数未满目标班级总课时，按课群常规天数自动顺延
+  // 若源周期天数未满目标班级总课时，按课群常规天数自动顺延 (RD班每周2天，GC班每周3天)
   if (currentDay <= total) {
-    const defaultPerWeek = (targetClass.schedule?.includes('周四') || targetClass.schedule?.includes('周五')) ? 2 : 3;
+    const isRD = isRDClass(targetClass.schedule, targetClass.name);
+    const defaultPerWeek = isRD ? 2 : 3;
     let wNum = result.length + 1;
     while (currentDay <= total) {
       const endDay = Math.min(total, currentDay + defaultPerWeek - 1);

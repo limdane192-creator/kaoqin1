@@ -4,7 +4,16 @@
  */
 
 import { ClassRoom, Student, Assignment, TeacherJournalEntry, Semester } from '../types';
-import { initialClasses, initialStudents, initialAssignments, initialSemesters, defaultSessionModes } from '../data/initialData';
+import {
+  initialClasses,
+  initialStudents,
+  initialAssignments,
+  initialSemesters,
+  defaultSessionModes,
+  defaultGcSessionDates,
+  defaultRdSessionDates
+} from '../data/initialData';
+import { isRDClass, isGCClass } from './scheduleHelper';
 
 const STORAGE_KEYS = {
   SEMESTERS: 'tea_semesters_v6',
@@ -111,13 +120,76 @@ export function loadClasses(): ClassRoom[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Ensure migration: every class has semesterId and sessionModes
-        return parsed.map((cls: ClassRoom) => ({
-          ...cls,
-          semesterId: cls.semesterId || 'sem_48',
-          semester: cls.semester || (cls.semesterId === 'sem_49' ? '49学期' : '48学期'),
-          sessionModes: cls.sessionModes || defaultSessionModes
-        }));
+        const merged = [...parsed];
+        // Ensure sample RD classes (RD-PRE 1, RD-PRE 2) and GC class exist so teacher can test immediately
+        initialClasses.forEach(ic => {
+          if ((ic.id === 'c_rd_pre1' || ic.id === 'c_rd_pre2' || ic.id === 'c_gcp1') && !merged.some(m => m.id === ic.id)) {
+            merged.push(ic);
+          }
+        });
+
+        // Ensure migration: every class has semesterId, sessionModes, and heal schedule & sessionDates for RD & GC classes
+        return merged.map((cls: ClassRoom) => {
+          let schedule = cls.schedule;
+          const isRD = isRDClass(schedule, cls.name);
+          const isGC = isGCClass(schedule, cls.name);
+
+          // If class name is clearly RD (e.g. RD-PRE, RD-GCP1, RD1) but schedule was still Mon/Wed, auto-heal to Thu/Fri while keeping time
+          if (isRD && (schedule?.includes('周一') || schedule?.includes('周三') || !schedule)) {
+            if (!schedule) {
+              schedule = '周四/周五 13:30 - 15:00';
+            } else {
+              schedule = schedule
+                .replace(/周一\/周三/g, '周四/周五')
+                .replace(/周一至周三/g, '周四至周五')
+                .replace(/周一/g, '周四')
+                .replace(/周三/g, '周五')
+                .replace(/mw/gi, 'TF');
+              if (!schedule.includes('周四') && !schedule.includes('周五')) {
+                schedule = '周四/周五 13:30 - 15:00';
+              }
+            }
+          }
+          if (isGC && (schedule?.includes('周四') || schedule?.includes('周五') || !schedule)) {
+            if (!schedule) {
+              schedule = '周一/周三 08:00 - 09:30';
+            } else {
+              schedule = schedule
+                .replace(/周四\/周五/g, '周一/周三')
+                .replace(/周四至周五/g, '周一至周三')
+                .replace(/周四/g, '周一')
+                .replace(/周五/g, '周三')
+                .replace(/tf/gi, 'MW');
+              if (!schedule.includes('周一') && !schedule.includes('周三')) {
+                schedule = '周一/周三 08:00 - 09:30';
+              }
+            }
+          }
+
+          let sessionDates = cls.sessionDates;
+          if (isRD) {
+            const first = sessionDates?.[1];
+            // If RD class still has GC default dates (11/10, 08/24, 08/31, 09/01, 11/11, 11/16) or missing, reset to defaultRdSessionDates (11/12, 11/13...)
+            if (!sessionDates || !first || first === '08/24' || first === '11/10' || first === '08/31' || first === '09/01' || first === '11/11' || first === '11/16') {
+              sessionDates = { ...defaultRdSessionDates };
+            }
+          } else if (isGC) {
+            const first = sessionDates?.[1];
+            // If GC class still has RD dates (11/12, 11/13, 08/24) or missing, reset to defaultGcSessionDates (11/10, 11/11...)
+            if (!sessionDates || !first || first === '08/24' || first === '11/12' || first === '11/13') {
+              sessionDates = { ...defaultGcSessionDates };
+            }
+          }
+
+          return {
+            ...cls,
+            schedule,
+            sessionDates: sessionDates || (isRD ? { ...defaultRdSessionDates } : { ...defaultGcSessionDates }),
+            semesterId: cls.semesterId || 'sem_48',
+            semester: cls.semester || (cls.semesterId === 'sem_49' ? '49学期' : '48学期'),
+            sessionModes: cls.sessionModes || defaultSessionModes
+          };
+        });
       }
     }
   } catch {}

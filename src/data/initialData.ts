@@ -10,14 +10,26 @@ export const initialSemesters: Semester[] = [
   { id: 'sem_48', name: '48学期', createdAt: 1720000000000 }
 ];
 
-export const defaultSessionDates: Record<number, string> = {
-  1: '08/24', 2: '08/25', 3: '08/26', 4: '08/31', 5: '09/01',
-  6: '09/02', 7: '09/07', 8: '09/08', 9: '09/09', 10: '09/14',
-  11: '09/15', 12: '09/16', 13: '09/21', 14: '09/22', 15: '09/23',
-  16: '09/28', 17: '09/29', 18: '09/30', 19: '10/05', 20: '10/06',
-  21: '10/07', 22: '10/12', 23: '10/13', 24: '10/14', 25: '10/19',
-  26: '10/20', 27: '10/21', 28: '10/26', 29: '10/27', 30: '10/28'
+// GC 课群专属标准排期 (周一至周三课：11/10 周二、11/11 周三、11/16 周一...，30课时)
+export const defaultGcSessionDates: Record<number, string> = {
+  1: '11/10', 2: '11/11', 3: '11/16', 4: '11/17', 5: '11/18',
+  6: '11/23', 7: '11/24', 8: '11/25', 9: '11/30', 10: '12/01',
+  11: '12/02', 12: '12/07', 13: '12/08', 14: '12/09', 15: '12/14',
+  16: '12/15', 17: '12/16', 18: '12/21', 19: '12/22', 20: '12/23',
+  21: '12/28', 22: '12/29', 23: '12/30', 24: '01/04', 25: '01/05',
+  26: '01/06', 27: '01/11', 28: '01/12', 29: '01/13', 30: '01/18'
 };
+
+// RD 课群专属标准排期 (周四和周五课：严格周四周五，绝不同于 GC！11/12 周四、11/13 周五、11/19 周四、11/20 周五...)
+export const defaultRdSessionDates: Record<number, string> = {
+  1: '11/12', 2: '11/13', 3: '11/19', 4: '11/20', 5: '11/26',
+  6: '11/27', 7: '12/03', 8: '12/04', 9: '12/10', 10: '12/11',
+  11: '12/17', 12: '12/18', 13: '12/24', 14: '12/25', 15: '12/31',
+  16: '01/01', 17: '01/07', 18: '01/08', 19: '01/14', 20: '01/15',
+  21: '01/21', 22: '01/22', 23: '01/28', 24: '01/29'
+};
+
+export const defaultSessionDates = defaultGcSessionDates;
 
 export const defaultSessionModes: Record<number, 'offline' | 'online'> = {
   1: 'offline', 2: 'offline', 3: 'offline', 4: 'offline', 5: 'online',
@@ -80,6 +92,57 @@ export const defaultSessionProgress: Record<number, string> = {
 
 export const initialClasses: ClassRoom[] = [
   {
+    id: 'c_gcp1',
+    name: 'GC-PRE GCP1',
+    code: 'CHN-GCP-1',
+    schedule: '周一/周三 08:00 - 09:30',
+    room: 'G102',
+    semesterId: 'sem_48',
+    semester: '48学期',
+    totalSessions: 30,
+    sessionDates: defaultGcSessionDates,
+    sessionModes: defaultSessionModes,
+    sessionMilestones: defaultSessionMilestones,
+    currentTeachingDay: 1,
+    currentTeachingTopic: '第一单元 拼音声母与单韵母发音',
+    sessionProgress: defaultSessionProgress,
+    colorTheme: 'blue'
+  },
+  {
+    id: 'c_rd_pre1',
+    name: 'RD-PRE 1',
+    code: 'CHN-RD-1',
+    schedule: '周四/周五 13:30 - 15:00',
+    room: '明德楼 B-105',
+    semesterId: 'sem_48',
+    semester: '48学期',
+    totalSessions: 20,
+    sessionDates: defaultRdSessionDates,
+    sessionModes: defaultSessionModes,
+    sessionMilestones: defaultTfSessionMilestones,
+    currentTeachingDay: 1,
+    currentTeachingTopic: '第一单元 拼音声母与单韵母发音',
+    sessionProgress: defaultSessionProgress,
+    colorTheme: 'violet'
+  },
+  {
+    id: 'c_rd_pre2',
+    name: 'RD-PRE 2',
+    code: 'CHN-RD-2',
+    schedule: '周四/周五 15:15 - 16:45',
+    room: '明德楼 B-107',
+    semesterId: 'sem_48',
+    semester: '48学期',
+    totalSessions: 20,
+    sessionDates: defaultRdSessionDates,
+    sessionModes: defaultSessionModes,
+    sessionMilestones: defaultTfSessionMilestones,
+    currentTeachingDay: 1,
+    currentTeachingTopic: '第一单元 拼音声母与单韵母发音',
+    sessionProgress: defaultSessionProgress,
+    colorTheme: 'amber'
+  },
+  {
     id: 'c_mw89',
     name: 'MW8-9',
     code: 'CHN-101',
@@ -88,7 +151,7 @@ export const initialClasses: ClassRoom[] = [
     semesterId: 'sem_48',
     semester: '48学期',
     totalSessions: 30,
-    sessionDates: defaultSessionDates,
+    sessionDates: defaultGcSessionDates,
     sessionModes: defaultSessionModes,
     sessionMilestones: defaultSessionMilestones,
     currentTeachingDay: 1,
@@ -105,7 +168,7 @@ export const initialClasses: ClassRoom[] = [
     semesterId: 'sem_48',
     semester: '48学期',
     totalSessions: 30,
-    sessionDates: defaultSessionDates,
+    sessionDates: defaultGcSessionDates,
     sessionModes: defaultSessionModes,
     sessionMilestones: defaultSessionMilestones,
     currentTeachingDay: 1,
@@ -122,7 +185,7 @@ export const initialClasses: ClassRoom[] = [
     semesterId: 'sem_48',
     semester: '48学期',
     totalSessions: 21,
-    sessionDates: defaultSessionDates,
+    sessionDates: defaultRdSessionDates,
     sessionModes: defaultSessionModes,
     sessionMilestones: defaultTfSessionMilestones,
     currentTeachingDay: 1,
@@ -139,7 +202,7 @@ export const initialClasses: ClassRoom[] = [
     semesterId: 'sem_48',
     semester: '48学期',
     totalSessions: 24,
-    sessionDates: defaultSessionDates,
+    sessionDates: defaultRdSessionDates,
     sessionModes: defaultSessionModes,
     sessionMilestones: defaultTfSessionMilestones,
     currentTeachingDay: 1,

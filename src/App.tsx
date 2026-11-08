@@ -58,7 +58,8 @@ import {
   getCohortDisplayName,
   getDefaultMilestonesForSessions,
   ScheduleCohortType,
-  adaptWeekCyclesForClass
+  adaptWeekCyclesForClass,
+  areClassesInSameCohort
 } from './utils/scheduleHelper';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -788,11 +789,11 @@ export default function App() {
     milestone?: SessionMilestone | string,
     syncToCohort?: boolean
   ) => {
-    const currentCohort = getScheduleCohort(currentClass.schedule, currentClass.name);
     setClasses(prev =>
       prev.map(c => {
         const isCurrent = c.id === currentClass.id;
-        const isSameCohort = syncToCohort && getScheduleCohort(c.schedule, c.name) === currentCohort && currentCohort !== 'other';
+        // 严格隔离：仅同步给同课群班级 (GC仅同步GC，RD仅同步RD，绝不交叉同步)
+        const isSameCohort = syncToCohort && areClassesInSameCohort(currentClass, c);
         if (!isCurrent && !isSameCohort) return c;
 
         const nextMilestones = { ...(c.sessionMilestones || {}) };
@@ -821,11 +822,11 @@ export default function App() {
     milestones?: Record<number, SessionMilestone | string>,
     syncToCohort?: boolean
   ) => {
-    const currentCohort = getScheduleCohort(currentClass.schedule, currentClass.name);
     setClasses(prev =>
       prev.map(c => {
         const isCurrent = c.id === currentClass.id;
-        const isSameCohort = syncToCohort && getScheduleCohort(c.schedule, c.name) === currentCohort && currentCohort !== 'other';
+        // 严格隔离：GC 与 RD 绝对互不干扰
+        const isSameCohort = syncToCohort && areClassesInSameCohort(currentClass, c);
         if (!isCurrent && !isSameCohort) return c;
 
         return {
@@ -838,7 +839,7 @@ export default function App() {
     );
   };
 
-  // 11.2 同周期班级排期与大考一键全量同步 (周一至周三课群 / 周四至周五课群)
+  // 11.2 同周期班级排期与大考一键全量同步 (GC课群 / RD课群严格物理隔离)
   const handleSyncCohortSchedules = (
     sourceClassId: string,
     targetCohort: ScheduleCohortType
@@ -849,7 +850,8 @@ export default function App() {
     setClasses(prev =>
       prev.map(c => {
         if (c.id === sourceClassId) return c;
-        if (getScheduleCohort(c.schedule, c.name) !== targetCohort) return c;
+        // 严格隔离校验：绝不乱同步，GC 和 RD 不能同步
+        if (!areClassesInSameCohort(sourceClass, c)) return c;
 
         const adaptedCycles = sourceClass.customWeekCycles
           ? adaptWeekCyclesForClass(c, sourceClass.customWeekCycles)
@@ -915,7 +917,8 @@ export default function App() {
     setClasses(prev =>
       prev.map(c => {
         const isSource = c.id === classId;
-        const isSameCohort = syncToCohort && currentCohort !== 'other' && getScheduleCohort(c.schedule, c.name) === currentCohort;
+        // 严格隔离：仅同步给同课群班级 (GC仅同步GC，RD仅同步RD，绝不交叉同步)
+        const isSameCohort = syncToCohort && areClassesInSameCohort(sourceClass, c);
         if (!isSource && !isSameCohort) return c;
 
         syncedNames.push(c.name);
@@ -947,7 +950,7 @@ export default function App() {
 
     const currentTotal = targetClass.totalSessions || 30;
     const newTotal = currentTotal + 1;
-    const weekdays = parseWeekdaysFromSchedule(targetClass.schedule);
+    const weekdays = parseWeekdaysFromSchedule(targetClass.schedule, targetClass.name);
     const lastDate = targetClass.sessionDates?.[currentTotal] || '';
     const nextDate = calculateNextSessionDate(lastDate, weekdays);
 
@@ -1551,7 +1554,9 @@ export default function App() {
             onBatchSetAttendance={handleBatchSetAttendance}
             onSelectStudentModal={stu => setSelectedStudentForModal(stu)}
             onSwitchToBrowse={() => setCurrentTab('attendance')}
-            onUpdateSessionConfig={handleUpdateSessionConfig}
+            onUpdateSessionConfig={(day, date, mode) =>
+              handleUpdateSessionConfig(day, date, mode, undefined, true)
+            }
             onSaveData={handleManualSave}
             isJustSaved={isJustSaved}
             onSortClassStudentsAZ={() => handleSortClassStudentsAZ(currentClass.id)}

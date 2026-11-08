@@ -52,7 +52,8 @@ import {
   getScheduleCohort,
   getCohortDisplayName,
   getDefaultMilestonesForSessions,
-  ScheduleCohortType
+  ScheduleCohortType,
+  areClassesInSameCohort
 } from '../utils/scheduleHelper';
 import { getSmartSessionsPerWeek, getWeekNumberForSession, getWeekNumberForSessionWithCycles, buildWeekCycles, WeekCycle } from '../utils/cycleHelper';
 
@@ -315,7 +316,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       milestone,
       syncToCohort: true
     });
-    setSelectedWeekdaysForEdit(parseWeekdaysFromSchedule(currentClass.schedule));
+    setSelectedWeekdaysForEdit(parseWeekdaysFromSchedule(currentClass.schedule, currentClass.name));
     setAutoScheduleNotice(null);
   };
 
@@ -334,7 +335,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     setSyncCohortInBatch(true);
     setBatchStartDay(1);
     setBatchStartDate(existing[1] || formatShortDate(new Date()));
-    setBatchWeekdays(parseWeekdaysFromSchedule(currentClass.schedule));
+    setBatchWeekdays(parseWeekdaysFromSchedule(currentClass.schedule, currentClass.name));
     setBatchScheduleNotice(null);
     setIsScheduleModalOpen(true);
   };
@@ -345,7 +346,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
     const weekdays = selectedWeekdaysForEdit.length > 0
       ? selectedWeekdaysForEdit
-      : parseWeekdaysFromSchedule(currentClass.schedule);
+      : parseWeekdaysFromSchedule(currentClass.schedule, currentClass.name);
 
     const generated = autoGenerateSessionDates({
       fromDay: editingSession.day,
@@ -467,7 +468,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   const currentCohort = getScheduleCohort(currentClass.schedule, currentClass.name);
   const cohortDisplayName = getCohortDisplayName(currentCohort);
   const siblingClasses = (allClasses || []).filter(
-    c => c.id !== currentClass.id && getScheduleCohort(c.schedule, c.name) === currentCohort && currentCohort !== 'other'
+    c => c.id !== currentClass.id && areClassesInSameCohort(currentClass, c)
   );
   const sessionsPerWeek = getSmartSessionsPerWeek(currentClass.schedule, totalSessions);
   const weekCycles = buildWeekCycles(
@@ -531,7 +532,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 </span>
               ) : siblingClasses.length > 0 ? (
                 <span className="text-[10px] bg-blue-100 text-blue-800 px-1 rounded-full font-mono font-bold">
-                  {currentCohort === 'mw' ? '周一至周三课群' : currentCohort === 'tf' ? '周四至周五课群' : '同课群'}
+                  {currentCohort === 'gc' || currentCohort === 'mw' ? 'GC 课群' : currentCohort === 'rd' || currentCohort === 'tf' ? 'RD 课群' : '同课群'}
                 </span>
               ) : null}
             </button>
@@ -2248,8 +2249,10 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                   <span>业务同步规则说明：</span>
                 </div>
                 <p className="text-[11px] leading-relaxed text-blue-800">
-                  如您所要求：<strong>周一到周三上的课，所有日期完全同步，只是上课时段不同</strong>；同样<strong>周四和周五上的课也是完全同步</strong>。
-                  无需各个班级重复录入！只要以一个班级为基准，即可一键把公历日期、授课形式及小测/期中/口语/期末红字考点全部同步给同课群班级。
+                  <strong>🛡️ 严格按前缀课群物理隔离同步（绝不混淆）</strong>：<br/>
+                  • <strong>GC 开头的班级（周一到周三）</strong>：只能与其它 GC 开头的班级同步日期与周期；<br/>
+                  • <strong>RD 开头的班级（周四和周五）</strong>：只能与其它 RD 开头的班级同步日期与周期；<br/>
+                  • <strong>铁律保证</strong>：GC 与 RD 绝对物理隔离，禁止任何形式的交叉同步！
                 </p>
               </div>
 

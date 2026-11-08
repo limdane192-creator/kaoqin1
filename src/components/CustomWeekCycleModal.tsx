@@ -26,7 +26,9 @@ import {
   getScheduleCohort,
   getCohortDisplayName,
   createFirstWeek2DaysPreset,
-  createFirstWeek1DayPreset
+  createFirstWeek1DayPreset,
+  areClassesInSameCohort,
+  isRDClass
 } from '../utils/scheduleHelper';
 
 interface CustomWeekCycleModalProps {
@@ -49,11 +51,11 @@ export const CustomWeekCycleModal: React.FC<CustomWeekCycleModalProps> = ({
   const totalSessions = currentClass.totalSessions || 30;
   const sessionDates = currentClass.sessionDates || {};
 
-  // 同周期课群归属 (周一至周三课群 / 周四至周五课群)
+  // 同周期课群归属 (GC周一至周三课群 / RD周四至周五课群，严格物理隔离)
   const currentCohort = getScheduleCohort(currentClass.schedule, currentClass.name);
   const cohortDisplayName = getCohortDisplayName(currentCohort);
   const siblingClasses = (allClasses || []).filter(
-    c => c.id !== currentClass.id && getScheduleCohort(c.schedule, c.name) === currentCohort && currentCohort !== 'other'
+    c => c.id !== currentClass.id && areClassesInSameCohort(currentClass, c)
   );
 
   // 默认开启课群自动同步 (满足用户需求：第一周两天或一天，其他周一同步)
@@ -65,10 +67,9 @@ export const CustomWeekCycleModal: React.FC<CustomWeekCycleModalProps> = ({
       return JSON.parse(JSON.stringify(currentClass.customWeekCycles));
     }
 
-    // Default: 3 sessions per week for 30 sessions, or 2 for 20
-    const perWeek = currentClass.schedule.includes('周四') || currentClass.schedule.includes('周五')
-      ? 2
-      : totalSessions <= 24 ? 2 : 3;
+    // Default: 2 sessions per week for RD classes, 3 for GC 30-session classes
+    const isRD = isRDClass(currentClass.schedule, currentClass.name);
+    const perWeek = isRD ? 2 : totalSessions <= 24 ? 2 : 3;
 
     const list: WeekCycleConfig[] = [];
     let curDay = 1;
@@ -372,11 +373,11 @@ export const CustomWeekCycleModal: React.FC<CustomWeekCycleModalProps> = ({
                     </span>
                   </label>
                   <p className="text-[11px] text-blue-700 mt-0.5 leading-relaxed">
-                    {currentCohort === 'mw'
-                      ? '🌟 当前为【周一至周三课群】（如 CG-PRE GCP1、MW 系列等）：若此班第一周设为 2 天，保存后所有周一至周三班级第一周也同步对齐为 2 天！'
-                      : currentCohort === 'tf'
-                      ? '🌟 当前为【周四至周五课群】（如 TF 系列班级）：若此班一周只有 1 天，保存后所有周四至周五班级也同步对齐为 1 天！'
-                      : '🌟 保存后同排期规则的所有班级均将同步此周次周期与分组划分。'}
+                    {currentCohort === 'gc' || currentCohort === 'mw'
+                      ? '🛡️【GC 课群 · 周一至周三】专属同步：若此班第一周设为 2 天，所有 GC 班级第一周均同步对齐为 2 天；严格与 RD 课群物理隔离，绝不交叉同步！'
+                      : currentCohort === 'rd' || currentCohort === 'tf'
+                      ? '🛡️【RD 课群 · 周四至周五】专属同步：若此班第一周只有 1 天，所有 RD 班级第一周均同步对齐为 1 天；严格与 GC 课群物理隔离，绝不交叉同步！'
+                      : '🌟 保存后仅同步同排期规则的所有平行班级。'}
                   </p>
                 </div>
               </div>
@@ -399,31 +400,31 @@ export const CustomWeekCycleModal: React.FC<CustomWeekCycleModalProps> = ({
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                <span>快速一键周期模板（含专属同步方案）：</span>
+                <span>快速一键周期模板（GC 与 RD 隔离同步）：</span>
               </span>
               <span className="text-[11px] text-amber-700">
                 点击一键应用，可在下方微调任何一周
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {/* 用户定制专属推荐 1：首周2天 + 常规3天 */}
+              {/* 用户定制专属推荐 1：首周2天 + 常规3天 (GC专属) */}
               <button
                 type="button"
                 onClick={handlePresetFirstWeek2Days}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-black transition-all shadow-xs cursor-pointer flex items-center gap-1"
-                title="满足用户要求：首周2天（第1~2课），之后常规每周3天，自动同步周一到周三所有班级"
+                title="首周2天（第1~2课），之后常规每周3天；仅同步GC周一至周三班级，绝不同步RD班级"
               >
-                <span>⭐ 首周2天 + 其余每周3天 (周一至周三课群同步)</span>
+                <span>⭐ GC专属：首周2天 + 常规3天/周 (仅同步所有GC班)</span>
               </button>
 
-              {/* 用户定制专属推荐 2：首周1天 + 常规2天 */}
+              {/* 用户定制专属推荐 2：首周1天 + 常规2天 (RD专属) */}
               <button
                 type="button"
                 onClick={handlePresetFirstWeek1Day}
                 className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-black transition-all shadow-xs cursor-pointer flex items-center gap-1"
-                title="满足用户要求：首周1天（第1课），之后常规每周2天，自动同步周四周五所有班级"
+                title="首周1天（第1课），之后常规每周2天；仅同步RD周四至周五班级，绝不同步GC班级"
               >
-                <span>⭐ 首周1天 + 其余每周2天 (周四至周五课群同步)</span>
+                <span>⭐ RD专属：首周1天 + 常规2天/周 (仅同步所有RD班)</span>
               </button>
 
               <button
